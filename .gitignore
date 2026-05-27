@@ -23,6 +23,8 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+logs/
+server/logs/
 
 # Editor / IDE
 .vscode/
@@ -38,6 +40,9 @@ __MACOSX/
 # Temporary files
 tmp/
 temp/
+.tmp/
+server/tmp/
+server/temp/
 
 # Test / coverage outputs
 coverage/
@@ -50,3 +55,37 @@ coverage/
 # Generated metadata
 _metadata.json
 **/_metadata.json
+
+# Runtime policy ingestion data
+server/data/policy_store/
+server/data/ingestion/
+server/data/raw/
+server/data/snapshots/
+server/data/review_queue/
+server/data/approved_policies/
+server/data/search_index/
+server/data/cache/
+
+# Runtime databases
+*.sqlite
+*.sqlite3
+*.db
+*.db-journal
+server/**/*.sqlite
+server/**/*.sqlite3
+server/**/*.db
+server/**/*.db-journal
+
+# Uploaded / extracted documents
+uploads/
+server/uploads/
+server/data/uploads/
+server/data/extracted/
+server/data/parsed_documents/
+
+# Generated policy artifacts
+server/data/generated/
+server/data/policy_drafts/
+server/data/policy_rules/
+server/data/policy_versions/
+server/data/change_reports/
