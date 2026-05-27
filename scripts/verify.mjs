@@ -25,6 +25,9 @@ import {
   runDocumentPipeline,
 } from '../src/logic/documentPipeline.js';
 import { File } from 'node:buffer';
+import { normalizePolicyRecord } from '../server/lib/policyNormalizer.js';
+import { generateRuleFromPolicySignals } from '../server/lib/ruleGenerator.js';
+import { ingestPolicySources } from '../server/lib/ingestionRunner.js';
 
 const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
 const readJson = (p) => JSON.parse(fs.readFileSync(path.join(root, p), 'utf-8'));
@@ -45,7 +48,13 @@ const requiredFiles = [
   'src/logic/lifepassCore.js',
   'src/logic/documentPipeline.js',
   'src/data/benefits.json',
-  'docs/REQUIREMENT_CHECKLIST.md',
+  'server/index.js',
+  'server/lib/ingestionRunner.js',
+  'server/lib/policyNormalizer.js',
+  'server/lib/ruleGenerator.js',
+  'server/lib/policyStore.js',
+  'server/lib/textExtractors.js',
+  'vite.config.js',
 ];
 for (const file of requiredFiles) assert(fs.existsSync(path.join(root, file)), `필수 파일 없음: ${file}`);
 
@@ -54,10 +63,16 @@ const tabMatch = appSource.match(/const TABS = \[([\s\S]*?)\];/);
 assert(tabMatch, 'TABS 선언 없음');
 const tabCount = (tabMatch[1].match(/'/g) || []).length / 2;
 assert(tabCount === 5, `탭 개수가 5개가 아님: ${tabCount}`);
+assert(!/['\"]\d+\.\s/.test(tabMatch[1]), '탭 이름에 숫자 접두사가 남아 있음');
+assert(!appSource.includes('텍스트 직접 입력</h3>'), '텍스트 직접 입력 창구가 아직 남아 있음');
+assert(!appSource.includes('onClick={applyText}'), '텍스트 입력 적용 버튼이 아직 남아 있음');
 
 const pkg = readJson('package.json');
 for (const dep of ['react', 'react-dom', 'vite', 'pdfjs-dist', 'mammoth', 'tesseract.js', 'jszip', 'papaparse']) {
   assert(pkg.dependencies[dep], `의존성 누락: ${dep}`);
+}
+for (const script of ['server', 'ingest:once', 'ingest:schedule']) {
+  assert(pkg.scripts[script], `백엔드/수집 스크립트 누락: ${script}`);
 }
 
 const sampleProfile = samples[0].profile;
@@ -101,6 +116,16 @@ assert(policySignals.rent_cap === 700000, `정책 월세 기준 추출 실패: $
 assert(policySignals.deposit_cap === 50000000, `정책 보증금 기준 추출 실패: ${policySignals.deposit_cap}`);
 assert(policySignals.support_amount === 200000, `정책 지원금 추출 실패: ${policySignals.support_amount}`);
 assert(policySignals.income_percent_criteria.includes(60) && policySignals.income_percent_criteria.includes(100), '정책 소득 기준 추출 실패');
+const generatedRule = generateRuleFromPolicySignals(policySignals);
+assert(generatedRule.all.some((rule) => rule.field === 'age'), '정책 룰 생성기 연령 조건 누락');
+assert(generatedRule.all.some((rule) => rule.field === 'rent'), '정책 룰 생성기 월세 조건 누락');
+const normalizedPolicy = normalizePolicyRecord({ title: '청년월세 지원 테스트', description: policyText, url: 'https://example.test/policy' }, { id: 'verify-source', label: '검증 소스', strategy: 'official_api', priority: 100 });
+assert(normalizedPolicy.benefit.rule.all.length >= 3, '외부 정책 record 정규화/룰 생성 실패');
+assert(normalizedPolicy.ingestion.content_hash?.length === 64, '정책 변경 감지용 hash 생성 실패');
+const tempStore = fs.mkdtempSync(path.join(root, '.verify-policy-store-'));
+const ingestResult = await ingestPolicySources({ config: { storeDir: tempStore, requestTimeoutMs: 2000 }, env: { ENABLE_BOKJIRO_CENTRAL: 'true', ENABLE_BOKJIRO_LOCAL: 'false', ENABLE_GOV24_BENEFITS: 'false', ENABLE_LOCAL_NOTICE_CRAWLER: 'false' } });
+assert(Array.isArray(ingestResult.skipped) && ingestResult.skipped.length >= 1, '공식 API URL 미설정 시 안전한 skip 처리 실패');
+fs.rmSync(tempStore, { recursive: true, force: true });
 const policyPipeline = await runDocumentPipeline(new File([policyText], 'youth_rent_policy_notice_2026.txt', { type: 'text/plain' }));
 assert(policyPipeline.documentKind === 'policy_notice', 'runDocumentPipeline 정책 문서 분기 실패');
 assert(policyPipeline.parserWarnings.some((w) => w.includes('정책 공고')), '정책 문서 경고 메시지 누락');
@@ -143,4 +168,5 @@ console.log(`- 문서 추출 근거: ${extraction.evidence.length}`);
 console.log(`- schema coverage: ${Math.round(mapping.coverage * 100)}%`);
 console.log(`- audit score: ${audit.audit_score}`);
 console.log(`- 신청 준비 할 일: ${applicationWorkflow.tasks.length}`);
-console.log('- React 탭 수: 5');
+console.log('- React 탭 수: 5, 숫자 접두사 없음');
+console.log('- 정책 자동 수집 백엔드/정규화/룰 생성 검증 완료');
