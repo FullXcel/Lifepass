@@ -1,22 +1,78 @@
 # LifePass React Lite
 
-## 문서 기반 청년 복지 절벽 방지·생애전환 의사결정 웹앱
+LifePass React Lite는 복지·주거·고용 지원정책을 사용자의 실제 상황과 연결해, **현재 받을 수 있는 혜택**, **앞으로 사라질 수 있는 혜택**, **신청을 위해 준비해야 할 일**을 한 흐름으로 보여주는 문서 기반 복지 의사결정 웹앱입니다.
 
-이 디렉토리는 기존 Streamlit 기반 `lifepass` 프로젝트를 **React 웹앱**으로 경량화한 버전입니다. 기존 MVP의 핵심 로직은 JavaScript로 포팅했고, Streamlit에 흩어져 있던 다수의 탭은 서비스 차별점이 잘 드러나는 **5개 탭**으로 재구성했습니다.
+이 프로젝트는 단순히 “혜택 목록”을 보여주는 앱이 아니라, 상담 메모·임대차 정보·정책 안내문처럼 정형화되지 않은 문서를 입력받아 구조화하고, 규칙 기반 판정 엔진으로 재현 가능한 결과를 산출하는 것을 목표로 합니다.
 
-핵심 방향은 다음입니다.
-
-1. 사용자가 CSV를 정제해서 올리지 않아도, PDF/DOCX/HWP/HWPX/이미지/텍스트 문서를 업로드하면 프로필 필드를 추출합니다.
-2. 추출된 필드는 schema mapper를 거쳐 LifePass `UserProfile` 구조로 변환됩니다.
-3. 검증 UI에서 추출 근거, 누락 필드, 확인 필요 항목을 보여줍니다.
-4. 자격 판정은 LLM이 아니라 기존 `benefits.json`과 규칙 기반 rule engine으로 수행합니다.
-5. 단순 현재 추천이 아니라 복지절벽, 생애전환, 신청 로드맵, 신뢰성 검증까지 이어집니다.
-
-> 주의: 정책 DB의 기준값은 원본 프로젝트와 동일하게 데모/대회용 데이터입니다. 실제 서비스에서는 복지로·정부24·고용24 등 최신 공고/API와 기관 검증 절차가 필요합니다.
+> 현재 포함된 정책 데이터는 데모/프로토타입 검증용입니다. 실제 서비스에서는 복지로, 정부24, 고용24, 지자체 공고 등 최신 원문과 기관 검수 절차를 반드시 연결해야 합니다.
 
 ---
 
-## 1. 실행 방법
+## 주요 기능
+
+### 1. 문서 기반 온보딩
+
+사용자는 CSV를 직접 정리하지 않아도 됩니다. PDF, DOCX, HWPX, 이미지, TXT, 상담 메모를 업로드하거나 붙여넣으면 앱이 나이, 지역, 월소득, 월세, 보증금, 실업급여 잔여일, 주거계약 여부 같은 핵심 필드를 추출합니다.
+
+지원 입력 형식은 다음과 같습니다.
+
+| 입력 형식 | 처리 방식 |
+|---|---|
+| PDF | `pdfjs-dist` 텍스트 레이어 추출, 필요 시 OCR 보조 |
+| DOCX | `mammoth` raw text 추출 |
+| HWPX / OWPML | ZIP 내부 XML 텍스트 추출 |
+| HWP | visible string fallback. 완전 파싱이 아니므로 검증 필요 |
+| 이미지 | `tesseract.js` 기반 한국어/영어 OCR |
+| TXT / MD / JSON | 일반 텍스트 추출 |
+| CSV | 헤더 schema mapping 후 일괄 프로필 변환 |
+
+### 2. 정책 문서와 신청자 문서 분리
+
+정책 공고문과 신청자 개인 문서를 같은 방식으로 처리하면 오류가 발생할 수 있습니다. 예를 들어 정책 문서의 “만 19~34세”, “월세 70만원 이하”를 신청자의 실제 나이나 월세로 오해할 수 있습니다.
+
+수정된 파이프라인은 문서 유형을 먼저 감지합니다.
+
+- 신청자 문서: 프로필 필드를 추출하고 현재 프로필에 반영
+- 정책 공고문: 연령 기준, 월세 기준, 보증금 기준, 지원금, 소득 기준, 필요서류, 신청방법을 별도 추출하며 현재 사용자 프로필을 자동 덮어쓰지 않음
+
+### 3. 규칙 기반 자격 판정
+
+자격 판정은 LLM 추측이 아니라 `src/data/benefits.json`의 JSON rule을 `src/logic/lifepassCore.js`의 deterministic rule engine으로 평가합니다.
+
+각 정책에 대해 다음을 확인할 수 있습니다.
+
+- 가능 / 불가능 여부
+- 충족 조건
+- 미충족 조건
+- 월 환산효과
+- 중복 또는 충돌되는 혜택
+- 필요한 신청 서류
+
+### 4. 복지절벽 시뮬레이션
+
+현재 받을 수 있는 혜택만 보는 것이 아니라, 1개월·3개월·6개월·12개월 뒤의 상황 변화도 계산합니다.
+
+예를 들어 다음 변화를 반영합니다.
+
+- 실업급여 종료
+- 예상 소득 발생
+- 소득 증가로 인한 자격 상실
+- 명목소득은 늘었지만 실제 순효과가 줄어드는 복지절벽 구간
+
+### 5. 신청 로드맵과 신뢰성 리포트
+
+선정된 혜택에 대해 신청 순서, 준비 서류, 알림 계획, 상담사 확인이 필요한 위험 신호를 제공합니다. 또한 조건 단위 trace와 audit score를 통해 왜 그런 결과가 나왔는지 확인할 수 있습니다.
+
+---
+
+## 실행 방법
+
+### 요구 환경
+
+- Node.js 18 이상 권장
+- npm
+
+### 설치 및 개발 서버 실행
 
 ```bash
 cd lifepass_react_lite
@@ -24,150 +80,38 @@ npm install
 npm run dev
 ```
 
-접속 주소:
+브라우저에서 다음 주소로 접속합니다.
 
 ```text
 http://localhost:5173
 ```
 
-프로덕션 빌드:
+### 프로덕션 빌드
 
 ```bash
 npm run build
 npm run preview
 ```
 
-자체 검증:
+### 자체 검증
 
 ```bash
 npm run verify
 ```
 
----
+검증 스크립트는 다음 항목을 확인합니다.
 
-## 2. 5개 핵심 탭
-
-기존 Streamlit 앱은 `AI Agent`, `온보딩/프로필`, `현재 판정`, `생애전환/절벽`, `CSV 일괄분석`, `정책 수집`, `DB/신청관리`, `전략·API`, `운영자`, `공공 API Gateway`, `고급 AI/신뢰성`, `v4`, `v5`, `실서비스화` 등 여러 탭이 있었습니다.
-
-React Lite에서는 심사/시연에서 차별점이 약한 부가 운영 기능을 제거하거나 내부 로직으로 흡수하고, 다음 5개 탭만 남겼습니다.
-
-### 1. 문서 온보딩
-
-- PDF 텍스트 레이어 추출
-- 이미지 기반 문서 OCR
-- DOCX 텍스트 추출
-- HWPX XML 추출
-- 구형 HWP 바이너리 visible string fallback
-- 텍스트 직접 입력
-- CSV 보조 업로드
-- 필드 추출기
-- schema mapper
-- 검증 UI
-- 추출 근거 표시
-
-### 2. 현재 판정
-
-- `benefits.json` 기반 규칙 판정
-- 가능/불가능 조건 추적
-- 중복/충돌 혜택 제거
-- 월 환산효과 기준 최적 조합
-
-### 3. 복지절벽 시뮬레이션
-
-- 현재, 1개월, 3개월, 6개월, 12개월 변화
-- 실업급여 종료 반영
-- 예상 소득 발생 반영
-- 소득별 복지절벽 시뮬레이션
-- Counterfactual 상황 비교
-
-### 4. 신청 로드맵
-
-- 추천 혜택별 준비 서류
-- 신청 workflow
-- 알림 outbox 계획
-- 상담사 개입 우선순위
-- human review 트리거
-
-### 5. 신뢰성·근거 리포트
-
-- deterministic eligibility 감사
-- conflict handling 감사
-- human review 감사
-- agent workflow trace
-- 조건 단위 판정 근거
-- Markdown 리포트 저장
+- 정책 JSON rule 평가
+- 최적 혜택 조합 계산
+- 복지절벽 시뮬레이션
+- 자연어/문서 필드 추출
+- CSV schema mapper
+- 실제 정책 안내문 형태의 테스트 문서 파싱
+- React 5개 탭 구조
 
 ---
 
-## 3. 문서 업로드 동작 방식
-
-지원 입력:
-
-| 형식 | 처리 방식 |
-|---|---|
-| PDF | `pdfjs-dist`로 텍스트 레이어 추출, 텍스트가 부족하면 OCR 옵션 사용 |
-| DOCX | `mammoth`로 raw text 추출 |
-| HWPX/OWPML | `jszip`으로 XML 내부 텍스트 추출 |
-| HWP | 바이너리 visible string fallback. 완전 파싱이 아니므로 검증 UI에서 확인 필요 표시 |
-| 이미지 | `tesseract.js` OCR, 한국어+영어 |
-| TXT/MD | 일반 텍스트 추출 |
-| CSV | schema mapper로 일괄 프로필 변환 |
-
-문서 파이프라인:
-
-```text
-파일 업로드
-→ text extraction / OCR
-→ field extractor
-→ schema mapper
-→ profile validation
-→ 사용자가 검증 UI에서 확인/수정
-→ rule engine 판정
-→ optimizer / simulator / workflow / audit
-```
-
----
-
-## 4. 기존 로직과 React 포팅 매핑
-
-| 원본 Python/Streamlit | React Lite |
-|---|---|
-| `app.py` | `src/App.jsx` |
-| `core/rule_engine.py` | `src/logic/lifepassCore.js`의 `evaluateRule`, `evaluateBenefit`, `evaluateAll` |
-| `core/optimizer.py` | `optimizeBenefits` |
-| `core/constraint_solver.py` | `solveBenefitPortfolio` |
-| `core/simulator.py` | `simulateTimeline`, `simulateIncomeCliff`, `generateTimelineEvents` |
-| `core/profile_parser.py` | `parseOnboardingText` |
-| `core/batch.py`, `core/smart_mapper.py` | `documentPipeline.js`의 `buildSchemaMap`, `mapRowsToProfiles` |
-| `core/document_parser.py` | `documentPipeline.js`의 `extractTextFromFile`, `runDocumentPipeline` |
-| `core/agent.py`, `agent_workflow.py` | `buildAgentPlan`, `buildAgentWorkflow` |
-| `core/application_review.py`, `notifications.py` | `buildApplicationWorkflow`, `planNotifications` |
-| `core/audit.py`, `privacy.py` | `buildTrustAudit`, validation/audit screen |
-| `core/report.py` | `makeMarkdownReport` |
-
----
-
-## 5. 제거/축소한 비핵심 기능
-
-다음 기능은 React Lite에서 화면 탭으로 분리하지 않았습니다.
-
-- DB/신청관리의 실제 SQLite/PostgreSQL 저장소 UI
-- 운영자 관리 탭
-- 공공 API Gateway 탭
-- v4/v5 실시간 이벤트 mesh, policy twin, 보안/인과/품질 실험용 탭
-- 전략/API 문서성 탭
-- 정책 수집 대시보드 전체 화면
-- 고급 AI/RAG/embedding 화면
-
-삭제 이유:
-
-- 대회 시연에서 핵심 차별점은 “문서 기반 입력 → 규칙 기반 판정 → 복지절벽 시뮬레이션 → 신청 로드맵 → 신뢰성 검증” 흐름입니다.
-- 운영/인프라/실험성 탭이 너무 많으면 서비스의 핵심 가치가 흐려집니다.
-- 필요한 기능 일부는 내부 로직이나 리포트 화면으로 흡수했습니다.
-
----
-
-## 6. 디렉토리 구조
+## 디렉토리 구조
 
 ```text
 lifepass_react_lite/
@@ -177,7 +121,9 @@ lifepass_react_lite/
 ├── IMPLEMENTATION_SUMMARY.md
 ├── docs/
 │   ├── ORIGINAL_ARCHITECTURE_REFERENCE.md
-│   └── REQUIREMENT_CHECKLIST.md
+│   ├── REQUIREMENT_CHECKLIST.md
+│   └── test_inputs/
+│       └── youth_rent_policy_notice_2026.txt
 ├── scripts/
 │   └── verify.mjs
 └── src/
@@ -196,9 +142,58 @@ lifepass_react_lite/
 
 ---
 
-## 7. 한계와 다음 단계
+## 핵심 파일 설명
 
-- 브라우저 단독 웹앱이므로 실제 기관 연동, 인증, 서버 DB 저장, 문서 보관은 포함하지 않았습니다.
-- 구형 `.hwp` 바이너리는 완전 파싱이 어렵기 때문에 HWPX 변환 또는 OCR 검증을 권장합니다.
-- OCR 품질은 이미지 해상도, 스캔 각도, 글꼴에 영향을 받습니다. 검증 UI에서 사람이 확인하도록 설계했습니다.
-- 실제 배포 시에는 서버 측 파일 스캔, 개인정보 암호화, 접근 권한, 감사 로그, 정책 데이터 최신화 파이프라인이 필요합니다.
+| 파일 | 역할 |
+|---|---|
+| `src/App.jsx` | React UI. 문서 온보딩, 현재 판정, 복지절벽, 신청 로드맵, 신뢰성 리포트 5개 탭 구성 |
+| `src/logic/lifepassCore.js` | 프로필 정규화, 자연어 파싱, 정책 rule 평가, 최적화, 시뮬레이션, 리포트 생성 |
+| `src/logic/documentPipeline.js` | PDF/DOCX/HWPX/OCR/TXT 추출, 필드 추출, 정책 문서 감지, schema mapping |
+| `src/data/benefits.json` | 데모 정책 카탈로그와 eligibility rule |
+| `scripts/verify.mjs` | Node 기반 자체 검증 스크립트 |
+| `docs/test_inputs/youth_rent_policy_notice_2026.txt` | 정책 문서 파싱 검증용 테스트 입력 |
+
+---
+
+## 사용 흐름
+
+```text
+문서 업로드 또는 텍스트 입력
+→ 문서 유형 감지
+→ 신청자 문서이면 프로필 필드 추출
+→ 정책 문서이면 정책 기준만 별도 추출
+→ 추출 근거와 검증 이슈 확인
+→ 사용자가 필요한 값 수정
+→ 규칙 기반 혜택 판정
+→ 중복/충돌 제거 후 최적 조합 계산
+→ 복지절벽·생애전환 시뮬레이션
+→ 신청 로드맵·신뢰성 리포트 확인
+```
+
+---
+
+## 설계 원칙
+
+1. **추측보다 근거**  
+   추출된 값마다 원문 근거와 confidence를 함께 보여줍니다.
+
+2. **LLM 판정 금지**  
+   자격 판정은 JSON rule과 deterministic engine으로 수행합니다. LLM은 설명 보조 역할에만 적합합니다.
+
+3. **정책 문서 오인 방지**  
+   정책 공고의 기준값을 사용자의 실제 개인정보로 덮어쓰지 않습니다.
+
+4. **현재 추천에서 끝나지 않기**  
+   실업급여 종료, 소득 발생, 자격 상실 가능성까지 시간축으로 계산합니다.
+
+5. **사람이 검증 가능한 결과**  
+   검증 UI, 조건 trace, audit score, human review 신호를 제공합니다.
+
+---
+
+## 알려진 한계
+
+- 구형 `.hwp`는 브라우저에서 완전한 구조 파싱이 어렵습니다. HWPX 변환 또는 OCR 검증을 권장합니다.
+- OCR 품질은 이미지 해상도, 스캔 각도, 글꼴에 영향을 받습니다.
+- 현재 프로젝트는 브라우저 중심 경량 MVP이며 서버 DB, 인증, 개인정보 암호화 저장, 실제 공공 API 연동은 포함하지 않습니다.
+- `benefits.json`의 정책 기준은 데모용입니다. 실제 서비스화 단계에서는 최신 정책 원문 수집, 변경 감지, 기관 검수, 배포 승인 프로세스가 필요합니다.
