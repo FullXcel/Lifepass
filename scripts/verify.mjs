@@ -14,10 +14,14 @@ import {
 } from '../src/logic/lifepassCore.js';
 import {
   extractFieldsFromText,
+  detectDocumentKind,
+  extractPolicySignalsFromText,
   validateExtraction,
   buildSchemaMap,
   mapRowsToProfiles,
+  runDocumentPipeline,
 } from '../src/logic/documentPipeline.js';
+import { File } from 'node:buffer';
 
 const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
 const readJson = (p) => JSON.parse(fs.readFileSync(path.join(root, p), 'utf-8'));
@@ -75,13 +79,28 @@ const parsed = parseOnboardingText(text);
 assert(parsed.age === 27, '자연어 파서 나이 추출 실패');
 assert(parsed.region === '서울', '자연어 파서 지역 추출 실패');
 assert(parsed.rent === 550000, `자연어 파서 월세 추출 실패: ${parsed.rent}`);
+assert(parsed.expected_monthly_income === 800000, `자연어 파서 미래 소득 추출 실패: ${parsed.expected_monthly_income}`);
 
 const extraction = extractFieldsFromText(text);
 assert(extraction.profile.age === 27, '문서 필드 추출 나이 실패');
 assert(extraction.profile.region === '서울', '문서 필드 추출 지역 실패');
 assert(extraction.evidence.length >= 4, `문서 필드 근거 부족: ${extraction.evidence.length}`);
+assert(extraction.evidence.some((e) => e.field === 'monthly_income' && e.value === 0), '무소득 근거 추출 실패');
+assert(!extraction.evidence.some((e) => e.field === 'unemployment_benefit_days_left' && e.value === 90), '실업급여 잔여일이 미래소득 3개월과 혼동됨');
 const validation = validateExtraction(extraction);
 assert(Array.isArray(validation.issues), '검증 이슈 배열이 아님');
+
+const policyText = fs.readFileSync(path.join(root, 'docs/test_inputs/youth_rent_policy_notice_2026.txt'), 'utf-8');
+assert(detectDocumentKind(policyText) === 'policy_notice', '정책 문서 유형 감지 실패');
+const policySignals = extractPolicySignalsFromText(policyText);
+assert(policySignals.age_range?.[0] === 19 && policySignals.age_range?.[1] === 34, `정책 연령 기준 추출 실패: ${policySignals.age_range}`);
+assert(policySignals.rent_cap === 700000, `정책 월세 기준 추출 실패: ${policySignals.rent_cap}`);
+assert(policySignals.deposit_cap === 50000000, `정책 보증금 기준 추출 실패: ${policySignals.deposit_cap}`);
+assert(policySignals.support_amount === 200000, `정책 지원금 추출 실패: ${policySignals.support_amount}`);
+assert(policySignals.income_percent_criteria.includes(60) && policySignals.income_percent_criteria.includes(100), '정책 소득 기준 추출 실패');
+const policyPipeline = await runDocumentPipeline(new File([policyText], 'youth_rent_policy_notice_2026.txt', { type: 'text/plain' }));
+assert(policyPipeline.documentKind === 'policy_notice', 'runDocumentPipeline 정책 문서 분기 실패');
+assert(policyPipeline.parserWarnings.some((w) => w.includes('정책 공고')), '정책 문서 경고 메시지 누락');
 
 const mapping = buildSchemaMap(['성명', '연령', '거주지', '월소득', '월세', '실업급여잔여일']);
 assert(mapping.mapped['연령'] === 'age', 'schema mapper 연령 매핑 실패');
