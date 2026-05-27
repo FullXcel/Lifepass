@@ -59,6 +59,9 @@ tr:last-child td { border-bottom: 0; }
 .field-row { display: grid; gap: 6px; font-size: 14px; color: #415446; }
 .field-row span { font-weight: 700; }
 .warn-box { background: #fff9e8; border: 1px solid #f0db9a; border-radius: 16px; padding: 12px 14px; color: #6b5200; margin: 12px 0; }
+.info-box { background: #eef8f0; border: 1px solid #cfe6d3; border-radius: 16px; padding: 12px 14px; color: #21462b; margin: 12px 0; }
+.info-box > strong { display: block; margin-bottom: 10px; }
+.info-box .muted { margin-top: 10px; }
 .status-line { color: #1f6f3e; font-weight: 700; }
 .error-line { color: #aa2020; font-weight: 700; }
 .raw-text { white-space: pre-wrap; background: #0d1d12; color: #e7f8e8; border-radius: 18px; padding: 16px; max-height: 420px; overflow: auto; }

@@ -33,6 +33,8 @@ import {
   mapRowsToProfiles,
   buildSchemaMap,
   extractFieldsFromText,
+  detectDocumentKind,
+  extractPolicySignalsFromText,
   profileToEditableRows,
 } from './logic/documentPipeline.js';
 
@@ -173,16 +175,20 @@ export default function App() {
 
   const applyText = () => {
     const result = extractFieldsFromText(inputText);
+    const documentKind = detectDocumentKind(inputText);
+    const policySignals = documentKind === 'policy_notice' ? extractPolicySignalsFromText(inputText) : null;
     setDocResult({
       file: { name: '직접 입력 텍스트', size: inputText.length, type: 'text/plain' },
       parser: 'regex+profile_parser',
+      documentKind,
+      policySignals,
       text: inputText,
       profile: result.profile,
       evidence: result.evidence,
       validation: { ...result, issues: result.warnings || [], confirmations: [] },
-      parserWarnings: [],
+      parserWarnings: documentKind === 'policy_notice' ? ['정책 공고/안내문으로 감지했습니다. 사용자 프로필을 자동 덮어쓰지 않고 정책 기준만 추출합니다.'] : [],
     });
-    setProfile(result.profile);
+    if (documentKind !== 'policy_notice') setProfile(result.profile);
   };
 
   const handleDocument = async (event) => {
@@ -193,7 +199,7 @@ export default function App() {
     try {
       const result = await runDocumentPipeline(file, { useOcr: true });
       setDocResult(result);
-      setProfile(result.profile);
+      if (result.documentKind !== 'policy_notice') setProfile(result.profile);
     } catch (error) {
       setDocError(error?.message || String(error));
     } finally {
@@ -244,9 +250,8 @@ export default function App() {
         <div>
           <div className="eyebrow">LifePass React Lite · Document-first Welfare Cliff Agent</div>
           <h1>문서만 넣어도 판정·시뮬레이션·신청 로드맵까지 이어지는 경량 웹앱</h1>
-          <p>
-              LifePass는 흩어진 복지 정보를 사용자의 실제 상황과 연결해, 받을 수 있는 지원·신청 우선순위·소득 변화에 따른 복지절벽 위험을 한 화면에서 안내하는 맞춤형 복지 내비게이션 플랫폼입니다.
-              </p>        </div>
+          <p>Streamlit의 17개 탭을 5개 핵심 탭으로 압축하고, 기존 규칙 기반 판정·최적화·복지절벽 로직은 React/JavaScript로 유지했습니다.</p>
+        </div>
         <div className="hero-card">
           <Metric label="정책 룰" value={`${benefits.length}개`} note="benefits.json 기반" />
           <Metric label="최적 조합" value={`${derived.plan.selected.length}개`} note={money(derived.plan.total_monthly_value)} />
@@ -285,8 +290,26 @@ export default function App() {
                 <Metric label="추출 근거" value={`${docResult.evidence?.length || 0}개`} />
                 <Metric label="검증 이슈" value={`${docResult.validation?.issues?.length || 0}개`} />
                 <Metric label="원문 길이" value={`${docResult.text?.length || 0}자`} />
+                <Metric label="문서 유형" value={docResult.documentKind === 'policy_notice' ? '정책 공고' : '신청자 문서'} />
               </div>
               {!!docResult.parserWarnings?.length && <div className="warn-box">{docResult.parserWarnings.map((w, i) => <p key={i}>{w}</p>)}</div>}
+              {docResult.documentKind === 'policy_notice' && docResult.policySignals && (
+                <div className="info-box">
+                  <strong>정책 문서 추출 결과</strong>
+                  <SimpleTable rows={[
+                    { 항목: '정책명/제목', 값: docResult.policySignals.title },
+                    { 항목: '지역 언급', 값: docResult.policySignals.regions?.join(', ') || '전국/미확인' },
+                    { 항목: '연령 기준', 값: docResult.policySignals.age_range ? `${docResult.policySignals.age_range[0]}~${docResult.policySignals.age_range[1]}세` : '미확인' },
+                    { 항목: '월세 기준', 값: docResult.policySignals.rent_cap ? money(docResult.policySignals.rent_cap) : '미확인' },
+                    { 항목: '보증금 기준', 값: docResult.policySignals.deposit_cap ? money(docResult.policySignals.deposit_cap) : '미확인' },
+                    { 항목: '지원금', 값: docResult.policySignals.support_amount ? money(docResult.policySignals.support_amount) : '미확인' },
+                    { 항목: '소득 기준', 값: docResult.policySignals.income_percent_criteria?.length ? docResult.policySignals.income_percent_criteria.map((x) => `중위소득 ${x}% 이하`).join(', ') : '미확인' },
+                    { 항목: '필요서류', 값: docResult.policySignals.required_docs?.join(', ') || '미확인' },
+                    { 항목: '신청방법', 값: docResult.policySignals.application_methods?.join(', ') || '미확인' },
+                  ]} />
+                  <p className="muted">정책 문서는 사용자 개인정보가 아니므로 현재 프로필을 자동 변경하지 않습니다. 정책 기준은 카탈로그 갱신이나 상담 근거 확인에 사용하세요.</p>
+                </div>
+              )}
               <div className="two-col">
                 <div>
                   <h3>추출 근거</h3>

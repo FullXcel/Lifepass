@@ -48,7 +48,10 @@ export function money(value) {
 
 export function numberInput(value, fallback = 0) {
   if (value === null || value === undefined || value === '') return fallback;
-  const cleaned = String(value).replaceAll(',', '').trim();
+  const cleaned = String(value)
+    .replaceAll(',', '')
+    .replace(/[원만천백억세살명개월일]/g, '')
+    .trim();
   const parsed = Number(cleaned);
   return Number.isFinite(parsed) ? parsed : fallback;
 }
@@ -126,12 +129,30 @@ export function projectProfile(profile, month) {
   return projected;
 }
 
+function normalizeMoneyText(text) {
+  return String(text || '')
+    .replaceAll(',', '')
+    .replace(/(\d)\s*(억|천\s*만|백\s*만|만|천)\s*원/g, (_, n, unit) => `${n}${unit.replace(/\s+/g, '')}원`)
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function inferUnit(num, unit, defaultUnit) {
+  if (unit) return unit.replace(/\s+/g, '');
+  if (defaultUnit && defaultUnit !== 'auto') return defaultUnit;
+  return Math.abs(num) > 0 && Math.abs(num) < 10000 ? '만원' : '원';
+}
+
 function moneyToInt(text, defaultUnit = '원') {
-  const cleaned = String(text || '').replaceAll(',', '').trim();
-  const match = cleaned.match(/(\d+(?:\.\d+)?)\s*(만원|천원|원)?/);
+  const cleaned = normalizeMoneyText(text);
+  if (/^(없음|무|무소득|해당없음|없다)$/i.test(cleaned)) return 0;
+  const match = cleaned.match(/(-?\d+(?:\.\d+)?)\s*(억원|천만원|백만원|만원|천원|원)?/);
   if (!match) return 0;
   const value = Number(match[1]);
-  const unit = match[2] || defaultUnit;
+  const unit = inferUnit(value, match[2], defaultUnit);
+  if (unit === '억원') return Math.trunc(value * 100000000);
+  if (unit === '천만원') return Math.trunc(value * 10000000);
+  if (unit === '백만원') return Math.trunc(value * 1000000);
   if (unit === '만원') return Math.trunc(value * 10000);
   if (unit === '천원') return Math.trunc(value * 1000);
   return Math.trunc(value);
@@ -144,13 +165,14 @@ function spanReplace(text, start, end) {
 export function parseOnboardingText(text) {
   const t = String(text || '').trim();
   const profile = {};
-  const age = t.match(/(?:만\s*)?(\d{2})\s*(?:세|살)/);
-  if (age) profile.age = Number(age[1]);
+  const moneyAmount = '-?\\d[\\d,]*(?:\\.\\d+)?\\s*(?:억원|천\\s*만\\s*원|천만원|백\\s*만\\s*원|백만원|만\\s*원|만원|천\\s*원|천원|원)?';
+  const age = t.match(/(?:나이|연령|신청자)?\s*(?:은|는|:|：)?\s*(?:만\s*)?(\d{1,3})\s*(?:세|살)(?!\s*(?:이상|이하|~|-|부터|까지))/);
+  if (age && !/[~-]/.test(t.slice(Math.max(0, age.index - 2), age.index))) profile.age = Number(age[1]);
   for (const region of REGIONS) {
     if (t.includes(region)) { profile.region = normalizeRegion(region); break; }
   }
-  const household = t.match(/(\d+)\s*인\s*가구/);
-  if (household) profile.household_size = Number(household[1]);
+  const household = t.match(/(?:(\d+)\s*인\s*가구|가구원\s*수\s*(?:은|는|:|：)?\s*(\d+)\s*명?|가구\s*수\s*(?:은|는|:|：)?\s*(\d+)\s*명?)/);
+  if (household) profile.household_size = Number(household[1] || household[2] || household[3]);
   else if (/(혼자|자취|1인가구)/.test(t)) profile.household_size = 1;
 
   if (/(실업급여|구직급여)/.test(t)) { profile.unemployment_benefit_receiving = true; profile.employment_status = 'unemployed'; }
@@ -167,32 +189,32 @@ export function parseOnboardingText(text) {
   if (monthLeft && profile.unemployment_benefit_days_left === undefined) profile.unemployment_benefit_days_left = Number(monthLeft[1]) * 30;
 
   let currentText = t;
-  const futureIncome = t.match(/(\d+)\s*개월\s*(?:뒤|후)[^,.。\n]{0,40}?(?:월소득|소득|수입|월급)?\s*(\d+(?:\.\d+)?\s*(?:만원|천원|원))/);
+  const futureIncome = t.match(new RegExp(`(\\d+)\\s*개월\\s*(?:뒤|후)[^,.。\\n]{0,50}?(?:월소득|소득|수입|월급|월)?\\s*(${moneyAmount})`));
   if (futureIncome) {
     profile.expected_income_start_month = Number(futureIncome[1]);
     profile.expected_monthly_income = moneyToInt(futureIncome[2], '만원');
     currentText = spanReplace(t, futureIncome.index, futureIncome.index + futureIncome[0].length);
   }
-  const income = currentText.match(/(?:현재\s*)?(?:월소득|소득|수입|월급)\s*(?:은|이|:)?\s*(\d+(?:\.\d+)?\s*(?:만원|천원|원)?)/);
+  const income = currentText.match(new RegExp(`(?:현재\\s*)?(?:월\\s*소득|월소득|근로소득|수입|월급)\\s*(?:은|는|이|가|:|：)?\\s*(${moneyAmount})(?!\\s*%)`));
   if (income) profile.monthly_income = moneyToInt(income[1], '만원');
-  else if (/(소득 없음|소득없음|무소득|월소득 0|소득 0)/.test(currentText)) profile.monthly_income = 0;
+  else if (/(월\s*소득|월소득|소득|수입|월급)\s*(?:은|는|이|가|:|：)?\s*(?:없|없음|무소득|0\s*원?)/.test(currentText) || /(소득 없음|소득없음|무소득|월소득 0|소득 0)/.test(currentText)) profile.monthly_income = 0;
 
   if (profile.expected_monthly_income === undefined) {
-    const expected = t.match(/(?:예정|예상|시작)[^,.。\n]{0,40}?(\d+(?:\.\d+)?\s*(?:만원|천원|원))/);
+    const expected = t.match(new RegExp(`(?:예정|예상|시작)[^,.。\\n]{0,40}?(${moneyAmount})`));
     if (expected) profile.expected_monthly_income = moneyToInt(expected[1], '만원');
   }
   const expectedMonth = t.match(/(\d+)\s*개월\s*(?:뒤|후).*?(?:알바|취업|소득|수입|월급)/);
   if (expectedMonth && profile.expected_income_start_month === undefined) profile.expected_income_start_month = Number(expectedMonth[1]);
 
-  const rent = t.match(/(?:월세|임대료)\s*(?:는|가|:)?\s*(\d+(?:\.\d+)?\s*(?:만원|천원|원)?)/);
+  const rent = t.match(new RegExp(`(?:월세|임대료|차임)\\s*(?:은|는|이|가|:|：)?\\s*(${moneyAmount})`));
   if (rent) { profile.rent = moneyToInt(rent[1], '만원'); profile.has_housing_contract = true; }
-  const deposit = t.match(/(?:보증금)\s*(?:은|이|:)?\s*(\d+(?:\.\d+)?\s*(?:만원|천원|원)?)/);
+  const deposit = t.match(new RegExp(`(?:보증금|임대보증금)\\s*(?:은|는|이|가|:|：)?\\s*(${moneyAmount})`));
   if (deposit) profile.deposit = moneyToInt(deposit[1], '만원');
-  const medical = t.match(/(?:의료비|병원비)\s*(?:가|는|:)?\s*(\d+(?:\.\d+)?\s*(?:만원|천원|원)?)/);
+  const medical = t.match(new RegExp(`(?:의료비|병원비)\\s*(?:은|는|이|가|:|：)?\\s*(${moneyAmount})`));
   if (medical) profile.medical_expense_3m = moneyToInt(medical[1], '만원');
   const credit = t.match(/(?:신용점수|신용)\s*(?:는|이|:)?\s*(\d{3,4})/);
   if (credit) profile.credit_score = Number(credit[1]);
-  const debt = t.match(/(?:상환|대출상환|월상환)\s*(?:은|이|:)?\s*(\d+(?:\.\d+)?\s*(?:만원|천원|원)?)/);
+  const debt = t.match(new RegExp(`(?:상환|대출상환|월상환)\\s*(?:은|는|이|가|:|：)?\\s*(${moneyAmount})`));
   if (debt) profile.debt_monthly_payment = moneyToInt(debt[1], '만원');
   if (/(위기|생계곤란|긴급|월세밀림|연체)/.test(t)) profile.crisis_event = true;
   if (/(기초생활|수급자)/.test(t)) profile.is_basic_livelihood = true;
