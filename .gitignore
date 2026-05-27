@@ -1,41 +1,52 @@
-# dependencies
+# Dependencies
 node_modules/
-.vite/
 
-# build outputs
+# Vite / frontend cache
+.vite/
+node_modules/.vite/
+.cache/
+
+# Build outputs
 dist/
 build/
 
-# local env files
+# Local environment files
 .env
 .env.local
 .env.development.local
 .env.test.local
 .env.production.local
 
-# logs
+# Logs
+*.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
-# editor / OS
-.DS_Store
+# Editor / IDE
 .vscode/
 .idea/
 
-# cache
-.cache/
-.vite/
+# OS generated files
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+__MACOSX/
 
-# temporary files
+# Temporary files
 tmp/
 temp/
 
-# test / coverage outputs
+# Test / coverage outputs
 coverage/
 
-# package manager
+# Package manager cache
 .pnpm-store/
+.npm/
+.yarn/
 
+# Generated metadata
+_metadata.json
 **/_metadata.json
