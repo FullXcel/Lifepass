@@ -308,7 +308,7 @@ function hasConflict(items) {
 
 export function optimizeBenefits(evaluations) {
   const eligible = evaluations.filter((ev) => ev.eligible);
-  if (!eligible.length) return { selected: [], rejected_due_to_conflict: [], total_monthly_value: 0, explanation: ['현재 조건에서 확정적으로 선택 가능한 혜택이 없습니다.'] };
+  if (!eligible.length) return { selected: [], rejected_due_to_conflict: [], total_monthly_value: 0, explanation: ['현재 입력한 정보만으로는 바로 신청 가능성이 높은 혜택을 찾지 못했습니다. 나이, 지역, 소득, 주거 정보를 다시 확인해 보세요.'] };
   let best = [];
   let bestScore = -1;
   const dfs = (idx, picked) => {
@@ -329,7 +329,7 @@ export function optimizeBenefits(evaluations) {
   const rejected = eligible.filter((ev) => !selectedIds.has(ev.benefit_id) && best.some((s) => isConflicting(ev, s)));
   const total = best.reduce((s, b) => s + b.monthly_value, 0);
   const explanation = rejected.map((rej) => `${rej.name}은(는) ${best.filter((s) => isConflicting(rej, s)).map((s) => s.name).join(', ')}와 중복/충돌되어 제외했습니다.`);
-  if (!explanation.length) explanation.push('선택된 혜택 간 명시적 충돌이 없습니다.');
+  if (!explanation.length) explanation.push('현재 우선 신청 후보끼리는 함께 신청하기 어려운 조합이 보이지 않습니다.');
   return { selected: best, rejected_due_to_conflict: rejected, total_monthly_value: total, explanation };
 }
 
@@ -482,7 +482,7 @@ export function buildApplicationStrategy(profile, benefits) {
       `${idx + 1}순위로 신청 검토: 월 환산효과 ${money(b.monthly_value)}`,
       `필요서류: ${(b.required_docs || []).slice(0, 4).join(', ') || '본인확인·소득자료'}`,
       b.apply_url ? `신청/확인 URL: ${b.apply_url}` : '신청 URL은 기관 안내문 확인 필요',
-      b.warnings?.length ? `주의: ${b.warnings.join(', ')}` : '현재 룰 기준 주요 경고 없음',
+      b.warnings?.length ? `주의: ${b.warnings.join(', ')}` : '현재 입력한 정보에서는 큰 주의 신호가 없습니다',
     ];
   });
   return strategy;
@@ -610,7 +610,7 @@ export function buildCounterfactuals(profile, benefits) {
     ['월소득 80만원 근로 시작', { monthly_income: 800000, employment_status: 'part_time', unemployment_benefit_receiving: false, income_percent_median: null }],
     ['직업훈련 희망 끄기', { wants_job_training: false }],
     ['위기사유 발생', { crisis_event: true }],
-    ['월세 0원으로 변경', { rent: 0 }],
+    ['월세가 없는 경우', { rent: 0 }],
   ];
   return scenarios.map(([scenario, patch]) => {
     const p = normalizeProfile({ ...base, ...patch });
@@ -653,24 +653,24 @@ export function searchPolicies(query, benefits, topK = 8) {
 export function buildTrustAudit(profile, benefits, agentPlan) {
   const p = normalizeProfile(profile);
   const controls = [
-    { control: 'Deterministic eligibility', status: 'pass', evidence: 'rule_engine.evaluate_all 결과 기반' },
-    { control: 'Conflict handling', status: 'pass', evidence: 'optimizer.optimize_benefits에서 exclusive_group 충돌 제거' },
-    { control: 'Human review trigger', status: agentPlan.priority_score >= 60 ? 'review' : 'pass', evidence: `priority=${agentPlan.priority_score}` },
-    { control: 'PII minimization', status: p.guardian_mode ? 'review' : 'pass', evidence: 'React local state / localStorage 저장' },
-    { control: 'Provenance links', status: agentPlan.evidence.length ? 'pass' : 'review', evidence: `${agentPlan.evidence.length}개 근거` },
+    { control: '자격 조건 확인', status: '확인 완료', evidence: '입력한 나이·지역·소득·주거 정보를 정책 조건과 비교했습니다.' },
+    { control: '중복 신청 가능성 확인', status: '확인 완료', evidence: '동시에 받기 어려운 혜택은 우선 신청 후보에서 제외했습니다.' },
+    { control: '상담사 확인 필요 여부', status: agentPlan.priority_score >= 60 ? '추가 확인 필요' : '확인 완료', evidence: `도움 필요도 ${agentPlan.priority_score}점` },
+    { control: '개인정보 입력 범위', status: p.guardian_mode ? '추가 확인 필요' : '확인 완료', evidence: '화면에서 입력한 정보만 현재 판정에 사용합니다.' },
+    { control: '판정 근거 표시', status: agentPlan.evidence.length ? '확인 완료' : '추가 확인 필요', evidence: `${agentPlan.evidence.length}개 혜택 근거를 확인했습니다.` },
   ];
-  const auditScore = 100 - controls.filter((c) => c.status === 'review').length * 12;
-  return { audit_score: auditScore, status: auditScore >= 85 ? 'ready' : 'needs_review', controls };
+  const auditScore = 100 - controls.filter((c) => c.status === '추가 확인 필요').length * 12;
+  return { audit_score: auditScore, status: auditScore >= 85 ? '바로 확인 가능' : '추가 확인 필요', controls };
 }
 
 export function buildAgentWorkflow(profile, benefits, question = '') {
   const plan = buildAgentPlan(profile, benefits, question);
   const audit = buildTrustAudit(profile, benefits, plan);
   const steps = [
-    { step: 1, node: 'intake', action: '프로필 정규화', result: `${profile.region}/${profile.age}` },
-    { step: 2, node: 'eligibility', action: '정책 룰엔진 판정', result: `${plan.selected_benefits.length}개 최적 선택` },
-    { step: 3, node: 'risk', action: '복지절벽/미래 상실 분석', result: `${plan.actions.length}개 액션` },
-    { step: 4, node: 'review', action: '상담사 검토 필요 여부 판단', result: audit.audit_score >= 85 ? '자동 진행 가능' : 'human review 필요' },
+    { step: 1, node: 'intake', action: '내 기본 정보 확인', result: `${profile.region} / ${profile.age}세` },
+    { step: 2, node: 'eligibility', action: '신청 가능성이 있는 혜택 찾기', result: `${plan.selected_benefits.length}개를 우선 후보로 정리` },
+    { step: 3, node: 'risk', action: '앞으로 놓칠 수 있는 혜택 확인', result: `${plan.actions.length}개 준비 항목 안내` },
+    { step: 4, node: 'review', action: '추가 상담 필요 여부 확인', result: audit.audit_score >= 85 ? '현재 정보로 우선 확인 가능' : '상담사 확인 권장' },
   ];
   return { human_review_required: audit.audit_score < 85 || plan.priority_score >= 60, audit_score: audit.audit_score, steps };
 }
@@ -678,15 +678,15 @@ export function buildAgentWorkflow(profile, benefits, question = '') {
 export function buildApplicationWorkflow(profile, selected) {
   const tasks = [];
   selected.forEach((b, idx) => {
-    tasks.push({ id: `wf-${idx + 1}-docs`, benefit: b.name, task: '서류 준비', due: 'D+3', status: 'todo' });
-    tasks.push({ id: `wf-${idx + 1}-submit`, benefit: b.name, task: '신청 제출', due: 'D+7', status: 'todo' });
-    tasks.push({ id: `wf-${idx + 1}-check`, benefit: b.name, task: '결과 확인', due: 'D+21', status: 'todo' });
+    tasks.push({ id: `wf-${idx + 1}-docs`, benefit: b.name, task: '서류 준비', due: 'D+3', status: '준비 전' });
+    tasks.push({ id: `wf-${idx + 1}-submit`, benefit: b.name, task: '신청 제출', due: 'D+7', status: '준비 전' });
+    tasks.push({ id: `wf-${idx + 1}-check`, benefit: b.name, task: '결과 확인', due: 'D+21', status: '준비 전' });
   });
   return { workflow_id: `wf-${profile.region}-${profile.age}-${selected.length}`, tasks };
 }
 
 export function planNotifications(profile, workflow) {
-  return (workflow.tasks || []).map((t, idx) => ({ id: `noti-${idx + 1}`, channel: profile.guardian_mode ? 'guardian' : 'in_app', title: `${t.benefit} · ${t.task}`, schedule: t.due, status: 'planned' }));
+  return (workflow.tasks || []).map((t, idx) => ({ id: `noti-${idx + 1}`, channel: profile.guardian_mode ? '보호자 알림' : '앱 알림', title: `${t.benefit} · ${t.task}`, schedule: t.due, status: '예정' }));
 }
 
 export function solveBenefitPortfolio(evaluations, maxItems = 6) {

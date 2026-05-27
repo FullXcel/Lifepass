@@ -254,10 +254,10 @@ export function validateExtraction(extraction) {
   const [safe, baseWarnings] = validateProfile(profile);
   const issues = [...baseWarnings];
   const confirmations = [];
-  if (!profile.age || profile.age === DEFAULT_PROFILE.age) issues.push('나이가 문서에서 확실히 추출되지 않았습니다.'); else confirmations.push('나이 추출 확인');
-  if (!profile.region || profile.region === DEFAULT_PROFILE.region) issues.push('지역이 기본값일 수 있습니다. 원문 근거를 확인하세요.'); else confirmations.push('지역 추출 확인');
-  if (!profile.monthly_income && !/(소득 없음|무소득|월소득 0|소득 0)/.test(extraction.rawText || '')) issues.push('월소득이 0원으로 해석되었습니다. 실제 무소득인지 확인하세요.');
-  if (profile.rent > 0 && !profile.has_housing_contract) issues.push('월세가 있으나 임대차계약 근거가 부족합니다.'); else if (profile.rent > 0) confirmations.push('월세/주거 정보 확인');
+  if (!profile.age || profile.age === DEFAULT_PROFILE.age) issues.push('나이를 문서에서 확실히 찾지 못했습니다. 실제 나이를 확인해 주세요.'); else confirmations.push('나이 확인');
+  if (!profile.region || profile.region === DEFAULT_PROFILE.region) issues.push('거주 지역이 기본값일 수 있습니다. 실제 거주 지역을 확인해 주세요.'); else confirmations.push('지역 확인');
+  if (!profile.monthly_income && !/(소득 없음|무소득|월소득 0|소득 0)/.test(extraction.rawText || '')) issues.push('월소득을 0원으로 읽었습니다. 실제로 소득이 없는 상태인지 확인해 주세요.');
+  if (profile.rent > 0 && !profile.has_housing_contract) issues.push('월세 정보는 찾았지만 임대차계약서 여부는 확인하지 못했습니다. 계약서가 있는지 확인해 주세요.'); else if (profile.rent > 0) confirmations.push('월세/주거 정보 확인');
   const evidenceFields = new Set((extraction.evidence || []).map((x) => x.field));
   const missingEvidence = ['age', 'region', 'monthly_income', 'rent'].filter((f) => !evidenceFields.has(f));
   return { profile: safe, ok: issues.length === 0 || issues.length <= 2, issues, confirmations, missingEvidence, evidence: extraction.evidence || [] };
@@ -410,7 +410,7 @@ async function extractHwpLikeText(file) {
   const utf8 = new TextDecoder('utf-8', { fatal: false }).decode(bytes);
   const visibleUtf8 = utf8.match(/[가-힣A-Za-z0-9\s:：,._\-()]{3,}/g)?.join(' ') || '';
   const text = visible.length > visibleUtf8.length ? visible : visibleUtf8;
-  return { text, parser: 'hwp-binary-visible-string-fallback', warnings: ['구형 .hwp 바이너리는 완전 파싱이 제한됩니다. HWPX로 변환하거나 OCR 검증을 권장합니다.'] };
+  return { text, parser: 'hwp-binary-visible-string-fallback', warnings: ['이 한글 파일은 일부 글자가 빠지거나 순서가 섞일 수 있습니다. 가능하면 HWPX 파일이나 PDF로 다시 올리고, 아래에서 읽어낸 정보를 직접 확인해 주세요.'] };
 }
 
 async function extractImageOcr(file) {
@@ -438,7 +438,7 @@ export async function runDocumentPipeline(file, options = {}) {
   const policySignals = documentKind === 'policy_notice' ? extractPolicySignalsFromText(extraction.text) : null;
   const parserWarnings = [...(extraction.warnings || [])];
   if (documentKind === 'policy_notice') {
-    parserWarnings.push('정책 공고/안내문으로 감지했습니다. 사용자 프로필을 자동 덮어쓰지 않고 정책 기준만 추출합니다.');
+    parserWarnings.push('정책 공고/안내문으로 보입니다. 내 정보는 바꾸지 않고, 신청 대상과 지원 조건만 따로 정리했습니다.');
   }
   return {
     file: { name: file.name, size: file.size, type: file.type },
@@ -457,11 +457,11 @@ export async function runDocumentPipeline(file, options = {}) {
 export function buildVerificationChecklist(pipelineResult) {
   const evidenceFields = new Set((pipelineResult.evidence || []).map((e) => e.field));
   return [
-    { item: '나이', status: evidenceFields.has('age') ? '확인' : '확인 필요', reason: '연령 조건 판정의 핵심 필드' },
-    { item: '지역', status: evidenceFields.has('region') ? '확인' : '확인 필요', reason: '지자체 정책 매칭의 핵심 필드' },
-    { item: '소득', status: evidenceFields.has('monthly_income') ? '확인' : '확인 필요', reason: '소득 기준 및 복지절벽 판정의 핵심 필드' },
-    { item: '주거비', status: evidenceFields.has('rent') ? '확인' : '선택 확인', reason: '월세/주거급여 계열 정책 판정에 필요' },
-    { item: '실업급여', status: evidenceFields.has('unemployment_benefit_receiving') || evidenceFields.has('unemployment_benefit_days_left') ? '확인' : '선택 확인', reason: '생애전환/실업급여 종료 위험 산정' },
+    { item: '나이', status: evidenceFields.has('age') ? '확인됨' : '확인 필요', reason: '대부분의 청년·주거·취업 지원은 나이 조건이 있습니다.' },
+    { item: '지역', status: evidenceFields.has('region') ? '확인됨' : '확인 필요', reason: '지역별로 신청 가능한 지자체 혜택이 달라질 수 있습니다.' },
+    { item: '소득', status: evidenceFields.has('monthly_income') ? '확인됨' : '확인 필요', reason: '소득 기준을 넘으면 받을 수 없는 혜택이 있을 수 있습니다.' },
+    { item: '주거비', status: evidenceFields.has('rent') ? '확인됨' : '해당 시 확인', reason: '월세·주거급여 계열 혜택을 확인할 때 필요합니다.' },
+    { item: '실업급여', status: evidenceFields.has('unemployment_benefit_receiving') || evidenceFields.has('unemployment_benefit_days_left') ? '확인됨' : '해당 시 확인', reason: '실업급여가 끝나는 시점에 따라 다음에 준비할 혜택이 달라질 수 있습니다.' },
   ];
 }
 
