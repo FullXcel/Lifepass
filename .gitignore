@@ -36,3 +36,5 @@ coverage/
 
 # package manager
 .pnpm-store/
+
+**/_metadata.json
