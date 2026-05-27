@@ -1,0 +1,25 @@
+{
+  "name": "lifepass-react-lite-document-first",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "LifePass Streamlit MVP logic ported to a lightweight React document-first web app.",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0 --port 5173",
+    "build": "vite build",
+    "preview": "vite preview --host 0.0.0.0 --port 4173",
+    "verify": "node scripts/verify.mjs"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "latest",
+    "vite": "latest",
+    "react": "latest",
+    "react-dom": "latest",
+    "papaparse": "latest",
+    "jszip": "latest",
+    "mammoth": "latest",
+    "pdfjs-dist": "latest",
+    "tesseract.js": "latest"
+  },
+  "devDependencies": {}
+}
