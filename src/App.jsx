@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import Papa from 'papaparse';
 import benefitsSeed from './data/benefits.json';
 import sampleProfiles from './data/sample_profiles.json';
@@ -32,18 +32,15 @@ import {
   buildVerificationChecklist,
   mapRowsToProfiles,
   buildSchemaMap,
-  extractFieldsFromText,
-  detectDocumentKind,
-  extractPolicySignalsFromText,
   profileToEditableRows,
 } from './logic/documentPipeline.js';
 
 const TABS = [
-  '1. 내 정보 불러오기',
-  '2. 받을 수 있는 혜택',
-  '3. 복지절벽 미리보기',
-  '4. 신청 준비하기',
-  '5. 판정 근거 확인하기',
+  '내 정보 불러오기',
+  '받을 수 있는 혜택',
+  '복지절벽 미리보기',
+  '신청 준비하기',
+  '판정 근거 확인하기',
 ];
 
 function valueText(value) {
@@ -101,9 +98,6 @@ function SimpleTable({ rows, limit = 12 }) {
   );
 }
 
-function TextArea({ value, onChange, placeholder }) {
-  return <textarea value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} />;
-}
 
 function ProfileEditor({ profile, onChange }) {
   const rows = profileToEditableRows(profile);
@@ -165,31 +159,80 @@ export default function App() {
   const [activeTab, setActiveTab] = useState(0);
   const [benefits] = useState(benefitsSeed);
   const [profile, setProfile] = useState(normalizeProfile(sampleProfiles[0]?.profile || DEFAULT_PROFILE));
-  const [inputText, setInputText] = useState('저는 서울에 사는 27세 1인가구이고, 월소득은 없고 월세는 55만 원입니다. 실업급여는 45일 남았습니다. 3개월 뒤 알바로 월 80만 원을 벌 예정입니다. 임대차계약서가 있습니다.');
   const [docResult, setDocResult] = useState(null);
   const [docLoading, setDocLoading] = useState(false);
   const [docError, setDocError] = useState('');
   const [batchRows, setBatchRows] = useState([]);
   const [batchAnalysis, setBatchAnalysis] = useState([]);
+  const [policyAdmin, setPolicyAdmin] = useState({ sources: [], enabled: [], drafts: [], policies: [] });
+  const [policyAdminLoading, setPolicyAdminLoading] = useState(false);
+  const [policyAdminMessage, setPolicyAdminMessage] = useState('');
   const derived = useDerived(profile, benefits);
 
-  const applyText = () => {
-    const result = extractFieldsFromText(inputText);
-    const documentKind = detectDocumentKind(inputText);
-    const policySignals = documentKind === 'policy_notice' ? extractPolicySignalsFromText(inputText) : null;
-    setDocResult({
-      file: { name: '직접 입력 텍스트', size: inputText.length, type: 'text/plain' },
-      parser: 'regex+profile_parser',
-      documentKind,
-      policySignals,
-      text: inputText,
-      profile: result.profile,
-      evidence: result.evidence,
-      validation: { ...result, issues: result.warnings || [], confirmations: [] },
-      parserWarnings: documentKind === 'policy_notice' ? ['정책 공고/안내문으로 감지했습니다. 사용자 프로필을 자동 덮어쓰지 않고 정책 기준만 추출합니다.'] : [],
-    });
-    if (documentKind !== 'policy_notice') setProfile(result.profile);
+  const loadPolicyAdmin = async () => {
+    setPolicyAdminLoading(true);
+    setPolicyAdminMessage('');
+    try {
+      const [sourcesRes, draftsRes, policiesRes] = await Promise.all([
+        fetch('/api/sources'),
+        fetch('/api/admin/review'),
+        fetch('/api/policies'),
+      ]);
+      if (!sourcesRes.ok) throw new Error('정책 수집 서버에 연결할 수 없습니다. 먼저 npm run server를 실행해 주세요.');
+      const sources = await sourcesRes.json();
+      const drafts = draftsRes.ok ? await draftsRes.json() : { drafts: [] };
+      const policies = policiesRes.ok ? await policiesRes.json() : { policies: [] };
+      setPolicyAdmin({
+        sources: sources.sources || [],
+        enabled: sources.enabled || [],
+        drafts: drafts.drafts || [],
+        policies: policies.policies || [],
+      });
+    } catch (error) {
+      setPolicyAdminMessage(error?.message || String(error));
+    } finally {
+      setPolicyAdminLoading(false);
+    }
   };
+
+  const runPolicyIngestion = async () => {
+    setPolicyAdminLoading(true);
+    setPolicyAdminMessage('정책 수집을 시작했습니다. API 키와 수집 URL이 설정되어 있어야 실제 데이터가 들어옵니다.');
+    try {
+      const res = await fetch('/api/ingest/run', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ forceReview: false }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || '정책 수집 실행 실패');
+      setPolicyAdminMessage(`수집 완료: 검수 후보 ${data.drafts_created}건, 저장 정책 ${data.summary?.policies || 0}건`);
+      await loadPolicyAdmin();
+    } catch (error) {
+      setPolicyAdminMessage(error?.message || String(error));
+    } finally {
+      setPolicyAdminLoading(false);
+    }
+  };
+
+  const reviewPolicyDraft = async (draftId, action) => {
+    setPolicyAdminLoading(true);
+    try {
+      const res = await fetch(`/api/admin/review/${encodeURIComponent(draftId)}/${action}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ reviewer: 'local-admin' }) });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || '검수 처리 실패');
+      setPolicyAdminMessage(action === 'approve' ? '정책 후보를 승인했습니다.' : '정책 후보를 반려했습니다.');
+      await loadPolicyAdmin();
+    } catch (error) {
+      setPolicyAdminMessage(error?.message || String(error));
+    } finally {
+      setPolicyAdminLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadPolicyAdmin();
+  }, []);
 
   const handleDocument = async (event) => {
     const file = event.target.files?.[0];
@@ -277,14 +320,14 @@ export default function App() {
               <div>
                 <h3>문서 파일 올리기</h3>
                 <input className="file-input" type="file" accept=".pdf,.docx,.hwp,.hwpx,.owpml,.png,.jpg,.jpeg,.webp,.bmp,.tif,.tiff,.txt,.md,.csv,.json" onChange={handleDocument} />
-                <p className="muted">PDF, 워드 문서, 한글 문서, 이미지, 텍스트 파일을 올릴 수 있습니다. 스캔본이나 사진 파일은 글자를 읽는 데 시간이 조금 더 걸릴 수 있습니다.</p>
+                <p className="muted">상담 메모, 임대차계약 관련 파일, 정책 안내문을 올릴 수 있습니다. 파일을 올리지 않아도 오른쪽의 직접 수정 영역에서 나이, 지역, 소득, 월세 같은 핵심 수치를 바로 조정할 수 있습니다.</p>
                 {docLoading && <p className="status-line">문서를 읽고 있습니다. 큰 이미지나 PDF는 잠시 시간이 걸릴 수 있습니다.</p>}
                 {docError && <p className="error-line">{docError}</p>}
               </div>
-              <div>
-                <h3>텍스트 직접 입력</h3>
-                <TextArea value={inputText} onChange={setInputText} placeholder="상담 메모나 문서에서 복사한 텍스트를 붙여넣으세요." />
-                <button className="primary" onClick={applyText}>입력한 내용으로 확인하기</button>
+              <div className="info-box">
+                <strong>텍스트 직접 입력은 제거했습니다</strong>
+                <p>같은 정보가 파일 입력과 텍스트 입력에서 다르게 들어오면 사용자가 오히려 혼란스러울 수 있습니다. 이제 정보 입력은 파일 업로드와 아래의 직접 수정 영역으로 단순화했습니다.</p>
+                <p className="muted">파일에 없는 추가 정보가 있다면 문서를 읽은 뒤 오른쪽의 숫자·선택 항목을 직접 고치면 됩니다.</p>
               </div>
             </div>
           </Section>
@@ -446,6 +489,38 @@ export default function App() {
             <SimpleTable rows={derived.audit.controls.map((c) => ({ 통제항목: c.control, 상태: c.status, 근거: c.evidence }))} />
             <h3>판정 과정 요약</h3>
             <SimpleTable rows={derived.agentWorkflow.steps.map((s) => ({ 단계: s.step, 노드: s.node, 작업: s.action, 결과: s.result }))} />
+          </Section>
+
+          <Section title="정책 수집 관리" subtitle="공식 API로 수집한 정책 후보를 검수하고 승인하는 운영자용 화면입니다. 실제 운영에서는 백엔드 서버와 관리자 토큰을 반드시 설정해야 합니다.">
+            <div className="metrics-row">
+              <Metric label="수집 소스" value={`${policyAdmin.sources.length}개`} note={`${policyAdmin.enabled.length}개 활성`} />
+              <Metric label="검수 대기" value={`${policyAdmin.drafts.length}건`} />
+              <Metric label="승인 정책" value={`${policyAdmin.policies.length}건`} />
+              <Metric label="서버 상태" value={policyAdminMessage && policyAdminMessage.includes('연결할 수 없습니다') ? '확인 필요' : '연결 시도'} />
+            </div>
+            <button className="primary" onClick={loadPolicyAdmin} disabled={policyAdminLoading}>상태 새로고침</button>
+            <button className="primary secondary-action" onClick={runPolicyIngestion} disabled={policyAdminLoading}>공식 API 정책 수집 실행</button>
+            {policyAdminMessage && <div className={policyAdminMessage.includes('실패') || policyAdminMessage.includes('연결할 수 없습니다') ? 'warn-box' : 'info-box'}>{policyAdminMessage}</div>}
+            <h3>수집 소스</h3>
+            <SimpleTable rows={policyAdmin.sources.map((s) => ({ 소스: s.label, 방식: s.strategy === 'official_api' ? '공식 API' : '허용 URL 보조 수집', 우선순위: s.priority, 상태: policyAdmin.enabled.includes(s.id) ? '활성' : '비활성', 설명: s.note }))} />
+            <h3>검수 대기 정책 후보</h3>
+            {policyAdmin.drafts.length === 0 ? <p className="muted">검수 대기 중인 정책 후보가 없습니다. API 키와 엔드포인트를 설정한 뒤 수집을 실행하세요.</p> : (
+              <div className="trace-list">
+                {policyAdmin.drafts.slice(0, 6).map((draft) => (
+                  <details key={draft.id} open>
+                    <summary>{draft.benefit?.name || draft.id}</summary>
+                    <SimpleTable rows={[
+                      { 항목: '출처', 값: draft.source?.label || draft.source?.id },
+                      { 항목: '변경유형', 값: draft.change_type || 'new' },
+                      { 항목: '지원금', 값: draft.benefit?.estimated_monthly_value ? money(draft.benefit.estimated_monthly_value) : '확인 필요' },
+                      { 항목: '검수 사유', 값: draft.ingestion?.review_reasons?.join(', ') || '확인 필요' },
+                    ]} />
+                    <button className="primary" onClick={() => reviewPolicyDraft(draft.id, 'approve')} disabled={policyAdminLoading}>승인</button>
+                    <button className="primary danger-action" onClick={() => reviewPolicyDraft(draft.id, 'reject')} disabled={policyAdminLoading}>반려</button>
+                  </details>
+                ))}
+              </div>
+            )}
           </Section>
 
           <Section title="판정 근거 상세" subtitle="사용자에게 왜 가능/불가능한지 조건 단위로 설명할 수 있습니다.">

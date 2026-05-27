@@ -82,4 +82,6 @@ summary { cursor: pointer; font-weight: 800; color: #1c4227; }
 @media (max-width: 560px) {
   .metrics-row { grid-template-columns: 1fr; }
   .tabs button { width: 100%; }
-}
+}.secondary-action { margin-left: 8px; background: #2d5d8f; }
+.danger-action { margin-left: 8px; background: #9b2f2f; }
+button:disabled { opacity: .55; cursor: not-allowed; }
