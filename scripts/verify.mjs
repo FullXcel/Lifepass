@@ -8,6 +8,9 @@ import {
   simulateTimeline,
   simulateIncomeCliff,
   buildAgentPlan,
+  buildApplicationStrategy,
+  buildApplicationWorkflow,
+  planNotifications,
   buildTrustAudit,
   makeMarkdownReport,
   money,
@@ -115,6 +118,14 @@ assert(mappedRows.length === 2, 'CSV row mapping 개수 실패');
 assert(mappedRows[0].profile.rent === 550000, 'CSV 월세 변환 실패');
 
 const agent = buildAgentPlan(sampleProfile, benefits, '검증');
+assert(Array.isArray(agent.reasons), '신청 준비 화면에서 사용할 상담 사유 배열이 없음');
+assert(agent.reasons.length > 0, '신청 준비 화면에서 표시할 상담 사유가 비어 있음');
+const applicationStrategy = buildApplicationStrategy(sampleProfile, benefits);
+assert(Object.keys(applicationStrategy).length > 0, '신청 준비 방법이 비어 있음');
+const applicationWorkflow = buildApplicationWorkflow(sampleProfile, plan.selected);
+assert(Array.isArray(applicationWorkflow.tasks) && applicationWorkflow.tasks.length > 0, '신청 준비 할 일이 비어 있음');
+const notifications = planNotifications(sampleProfile, applicationWorkflow);
+assert(notifications.length === applicationWorkflow.tasks.length, '신청 알림 수와 할 일 수가 맞지 않음');
 const audit = buildTrustAudit(sampleProfile, benefits, agent);
 assert(audit.audit_score >= 70, `audit score 과도하게 낮음: ${audit.audit_score}`);
 const report = makeMarkdownReport(sampleProfile, benefits);
@@ -131,4 +142,5 @@ console.log(`- 복지절벽 경고 시나리오: ${cliffs.filter((row) => row.wa
 console.log(`- 문서 추출 근거: ${extraction.evidence.length}`);
 console.log(`- schema coverage: ${Math.round(mapping.coverage * 100)}%`);
 console.log(`- audit score: ${audit.audit_score}`);
+console.log(`- 신청 준비 할 일: ${applicationWorkflow.tasks.length}`);
 console.log('- React 탭 수: 5');
