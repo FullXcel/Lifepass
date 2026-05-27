@@ -8,7 +8,10 @@
     "dev": "vite --host 0.0.0.0 --port 5173",
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0 --port 4173",
-    "verify": "node scripts/verify.mjs"
+    "verify": "node scripts/verify.mjs",
+    "server": "node server/index.js",
+    "ingest:once": "node server/ingestOnce.js",
+    "ingest:schedule": "node server/scheduler.js"
   },
   "dependencies": {
     "@vitejs/plugin-react": "latest",
