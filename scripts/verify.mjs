@@ -66,9 +66,25 @@ assert(tabCount === 5, `탭 개수가 5개가 아님: ${tabCount}`);
 assert(!/['\"]\d+\.\s/.test(tabMatch[1]), '탭 이름에 숫자 접두사가 남아 있음');
 assert(!appSource.includes('텍스트 직접 입력</h3>'), '텍스트 직접 입력 창구가 아직 남아 있음');
 assert(!appSource.includes('onClick={applyText}'), '텍스트 입력 적용 버튼이 아직 남아 있음');
+assert(appSource.includes('approvedPolicies') && appSource.includes('setApprovedPolicies'), '승인된 외부 정책을 혜택 매칭에 합치는 로직이 없음');
+assert(appSource.includes('x-admin-token'), '관리자 API 호출에 x-admin-token 헤더를 보내는 로직이 없음');
+
+const envSource = fs.readFileSync(path.join(root, 'server/config/env.js'), 'utf-8');
+assert(envSource.includes('dotenv.config'), '.env를 로드하는 dotenv 설정이 없음');
+assert(envSource.includes('getPolicyApiConfig'), '정책 API 환경변수 설정 함수가 없음');
+const sourceConfig = fs.readFileSync(path.join(root, 'server/config/policySources.js'), 'utf-8');
+for (const sourceId of ['bokjiro-central-welfare', 'bokjiro-local-welfare', 'gov24-benefits', 'youth-policy', 'local-notice-allowlist']) {
+  assert(sourceConfig.includes(sourceId), `정책 수집 소스 누락: ${sourceId}`);
+}
+assert(sourceConfig.includes('authParam') && sourceConfig.includes('detailUrlEnv'), 'API별 인증 파라미터 또는 상세 URL 설정이 없음');
+const httpSource = fs.readFileSync(path.join(root, 'server/lib/httpClient.js'), 'utf-8');
+assert(httpSource.includes('withApiParams'), 'API별 인증 파라미터를 처리하는 withApiParams 함수가 없음');
+assert(httpSource.includes('parseXmlRecords'), 'XML 응답을 record로 변환하는 로직이 없음');
+const runnerSource = fs.readFileSync(path.join(root, 'server/lib/ingestionRunner.js'), 'utf-8');
+assert(runnerSource.includes('enrichRecords') && runnerSource.includes('looksLikeDataPortalDocPage'), '상세조회 보강 또는 data.go.kr 문서 URL 방어 로직이 없음');
 
 const pkg = readJson('package.json');
-for (const dep of ['react', 'react-dom', 'vite', 'pdfjs-dist', 'mammoth', 'tesseract.js', 'jszip', 'papaparse']) {
+for (const dep of ['react', 'react-dom', 'vite', 'pdfjs-dist', 'mammoth', 'tesseract.js', 'jszip', 'papaparse', 'dotenv']) {
   assert(pkg.dependencies[dep], `의존성 누락: ${dep}`);
 }
 for (const script of ['server', 'ingest:once', 'ingest:schedule']) {
