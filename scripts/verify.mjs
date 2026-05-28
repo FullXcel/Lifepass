@@ -66,7 +66,9 @@ assert(tabCount === 5, `탭 개수가 5개가 아님: ${tabCount}`);
 assert(!/['\"]\d+\.\s/.test(tabMatch[1]), '탭 이름에 숫자 접두사가 남아 있음');
 assert(!appSource.includes('텍스트 직접 입력</h3>'), '텍스트 직접 입력 창구가 아직 남아 있음');
 assert(!appSource.includes('onClick={applyText}'), '텍스트 입력 적용 버튼이 아직 남아 있음');
-assert(appSource.includes('approvedPolicies') && appSource.includes('setApprovedPolicies'), '승인된 외부 정책을 혜택 매칭에 합치는 로직이 없음');
+assert(appSource.includes('approvedPolicies') && appSource.includes('setApprovedPolicies'), '승인된 외부 정책 상태 관리 로직이 없음');
+assert(appSource.includes('activeExternalPolicies') && appSource.includes('usingFallbackPolicies'), '외부 승인 정책 우선 사용 및 데모 정책 fallback 로직이 없음');
+assert(appSource.includes('if (activeExternalPolicies.length > 0) return activeExternalPolicies;'), '외부 정책이 있으면 데모 정책을 제외하는 로직이 없음');
 assert(appSource.includes('x-admin-token'), '관리자 API 호출에 x-admin-token 헤더를 보내는 로직이 없음');
 
 const envSource = fs.readFileSync(path.join(root, 'server/config/env.js'), 'utf-8');
