@@ -89,3 +89,5 @@ server/data/policy_drafts/
 server/data/policy_rules/
 server/data/policy_versions/
 server/data/change_reports/
+
+.env
