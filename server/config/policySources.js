@@ -1,3 +1,5 @@
+import { envBool } from './env.js';
+
 export const OFFICIAL_POLICY_SOURCES = [
   {
     id: 'bokjiro-central-welfare',
@@ -5,10 +7,19 @@ export const OFFICIAL_POLICY_SOURCES = [
     priority: 100,
     strategy: 'official_api',
     apiBaseEnv: 'BOKJIRO_CENTRAL_API_URL',
+    detailUrlEnv: 'BOKJIRO_CENTRAL_DETAIL_API_URL',
     apiKeyEnv: 'BOKJIRO_SERVICE_KEY',
+    authParam: 'serviceKey',
     enabledEnv: 'ENABLE_BOKJIRO_CENTRAL',
     defaultEnabled: true,
-    note: '공식 API가 제공하는 목록·상세 데이터를 우선 수집합니다.',
+    defaultParams: { _type: 'json', numOfRows: 50, pageNo: 1 },
+    pagination: { pageParam: 'pageNo', sizeParam: 'numOfRows', size: 50 },
+    detail: {
+      idKeys: ['wlfareInfoId', 'servId', 'serviceId', 'id', '서비스ID'],
+      param: 'wlfareInfoId',
+      maxDetails: 25,
+    },
+    note: '공식 API가 제공하는 중앙부처 복지서비스 목록과 상세 데이터를 우선 수집합니다.',
   },
   {
     id: 'bokjiro-local-welfare',
@@ -17,9 +28,17 @@ export const OFFICIAL_POLICY_SOURCES = [
     strategy: 'official_api',
     apiBaseEnv: 'BOKJIRO_LOCAL_API_URL',
     apiKeyEnv: 'BOKJIRO_SERVICE_KEY',
+    authParam: 'serviceKey',
     enabledEnv: 'ENABLE_BOKJIRO_LOCAL',
     defaultEnabled: true,
-    note: '지역별 복지서비스 상세를 수집해 중앙 정책과 분리 저장합니다.',
+    defaultParams: { _type: 'json', numOfRows: 50, pageNo: 1 },
+    pagination: { pageParam: 'pageNo', sizeParam: 'numOfRows', size: 50 },
+    detail: {
+      idKeys: ['wlfareInfoId', 'servId', 'serviceId', 'id', '서비스ID'],
+      param: 'wlfareInfoId',
+      maxDetails: 25,
+    },
+    note: '지역별 복지서비스를 수집해 중앙 정책과 분리 저장합니다.',
   },
   {
     id: 'gov24-benefits',
@@ -27,10 +46,100 @@ export const OFFICIAL_POLICY_SOURCES = [
     priority: 80,
     strategy: 'official_api',
     apiBaseEnv: 'GOV24_BENEFIT_API_URL',
+    detailUrlEnv: 'GOV24_DETAIL_API_URL',
+    supportConditionsUrlEnv: 'GOV24_SUPPORT_CONDITIONS_API_URL',
     apiKeyEnv: 'GOV24_SERVICE_KEY',
+    authParam: 'serviceKey',
     enabledEnv: 'ENABLE_GOV24_BENEFITS',
     defaultEnabled: true,
-    note: '보조금·공공서비스성 혜택 정보를 정책 후보로 수집합니다.',
+    defaultParams: { page: 1, perPage: 50, returnType: 'JSON' },
+    pagination: { pageParam: 'page', sizeParam: 'perPage', size: 50 },
+    detail: {
+      idKeys: ['serviceId', 'svcId', 'servId', '서비스ID', 'id'],
+      param: 'serviceId',
+      maxDetails: 25,
+    },
+    support: {
+      idKeys: ['serviceId', 'svcId', 'servId', '서비스ID', 'id'],
+      param: 'serviceId',
+      maxDetails: 25,
+    },
+    note: '정부·지자체·공공기관 혜택 정보를 정책 후보로 수집합니다.',
+  },
+  {
+    id: 'youth-policy',
+    label: '온통청년 청년정책',
+    priority: 75,
+    strategy: 'official_api',
+    apiBaseEnv: 'YOUTH_POLICY_API_URL',
+    apiKeyEnv: 'YOUTH_POLICY_API_KEY',
+    authParam: 'openApiVlak',
+    enabledEnv: 'ENABLE_YOUTH_POLICY',
+    defaultEnabled: false,
+    defaultParams: { display: 50, pageIndex: 1 },
+    pagination: { pageParam: 'pageIndex', sizeParam: 'display', size: 50 },
+    detail: {
+      idKeys: ['plcyNo', 'bizId', 'policyId', 'id', '정책ID'],
+      param: 'plcyNo',
+      maxDetails: 25,
+    },
+    note: '청년정책 정보를 보조 수집합니다. 발급받은 온통청년 API 키가 필요합니다.',
+  },
+  {
+    id: 'myhome-public-housing-notice',
+    label: '마이홈 공공주택 모집공고',
+    priority: 60,
+    strategy: 'official_api',
+    apiBaseEnv: 'MYHOME_PUBLIC_HOUSING_NOTICE_API_URL',
+    apiKeyEnv: 'MYHOME_SERVICE_KEY',
+    authParam: 'serviceKey',
+    enabledEnv: 'ENABLE_MYHOME_PUBLIC_HOUSING_NOTICE',
+    defaultEnabled: false,
+    defaultParams: { _type: 'json', numOfRows: 50, pageNo: 1 },
+    pagination: { pageParam: 'pageNo', sizeParam: 'numOfRows', size: 50 },
+    note: '주거지원·공공주택 공고를 수집합니다. data.go.kr 소개 페이지가 아닌 실제 호출 엔드포인트를 넣어야 합니다.',
+  },
+  {
+    id: 'myhome-rental-housing-complex',
+    label: '마이홈 공공임대주택 단지정보',
+    priority: 55,
+    strategy: 'official_api',
+    apiBaseEnv: 'MYHOME_RENTAL_HOUSING_COMPLEX_API_URL',
+    apiKeyEnv: 'MYHOME_SERVICE_KEY',
+    authParam: 'serviceKey',
+    enabledEnv: 'ENABLE_MYHOME_RENTAL_HOUSING_COMPLEX',
+    defaultEnabled: false,
+    defaultParams: { _type: 'json', numOfRows: 50, pageNo: 1 },
+    pagination: { pageParam: 'pageNo', sizeParam: 'numOfRows', size: 50 },
+    note: '공공임대주택 단지 정보를 수집합니다. 실제 API 호출 URL 확인 후 활성화하세요.',
+  },
+  {
+    id: 'myhome-waiting-list',
+    label: '마이홈 예비입주자 대기현황',
+    priority: 50,
+    strategy: 'official_api',
+    apiBaseEnv: 'MYHOME_WAITING_LIST_API_URL',
+    apiKeyEnv: 'MYHOME_SERVICE_KEY',
+    authParam: 'serviceKey',
+    enabledEnv: 'ENABLE_MYHOME_WAITING_LIST',
+    defaultEnabled: false,
+    defaultParams: { _type: 'json', numOfRows: 50, pageNo: 1 },
+    pagination: { pageParam: 'pageNo', sizeParam: 'numOfRows', size: 50 },
+    note: '예비입주자 대기현황을 보조 수집합니다. 실제 API 호출 URL 확인 후 활성화하세요.',
+  },
+  {
+    id: 'worknet-jobs',
+    label: '워크넷 고용·채용 보조 데이터',
+    priority: 45,
+    strategy: 'official_api',
+    apiBaseEnv: 'WORKNET_JOB_API_URL',
+    apiKeyEnv: 'WORKNET_SERVICE_KEY',
+    authParam: 'authKey',
+    enabledEnv: 'ENABLE_WORKNET_JOBS',
+    defaultEnabled: false,
+    defaultParams: { returnType: 'XML', startPage: 1, display: 50 },
+    pagination: { pageParam: 'startPage', sizeParam: 'display', size: 50 },
+    note: '복지 정책은 아니지만 고용·구직 전환 판단을 보조하는 데이터로 활용합니다.',
   },
   {
     id: 'local-notice-allowlist',
@@ -45,9 +154,5 @@ export const OFFICIAL_POLICY_SOURCES = [
 ];
 
 export function enabledSources(env = process.env) {
-  return OFFICIAL_POLICY_SOURCES.filter((source) => {
-    const raw = env[source.enabledEnv];
-    if (raw === undefined || raw === '') return source.defaultEnabled;
-    return ['1', 'true', 'yes', 'on'].includes(String(raw).toLowerCase());
-  });
+  return OFFICIAL_POLICY_SOURCES.filter((source) => envBool(source.enabledEnv, source.defaultEnabled, env));
 }
