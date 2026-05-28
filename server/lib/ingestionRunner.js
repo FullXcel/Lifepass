@@ -2,8 +2,8 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { enabledSources } from '../config/policySources.js';
 import { getServerConfig } from '../config/env.js';
-import { fetchWithTimeout, flattenRecords, withServiceKey } from './httpClient.js';
-import { extractTextFromBuffer, extractTextFromHtml } from './textExtractors.js';
+import { fetchWithTimeout, flattenRecords, looksLikeDataPortalDocPage, withApiParams } from './httpClient.js';
+import { extractTextFromBuffer } from './textExtractors.js';
 import { normalizePolicyRecord } from './policyNormalizer.js';
 import { recordSnapshot, saveRawDocument, sha256, upsertDraft, rebuildSearchIndex, storeSummary } from './policyStore.js';
 
@@ -11,22 +11,143 @@ function envList(name, env = process.env) {
   return String(env[name] || '').split(',').map((x) => x.trim()).filter(Boolean);
 }
 
+function getByPath(obj, pathExpr = '') {
+  if (!obj || !pathExpr) return undefined;
+  return String(pathExpr).split('.').reduce((acc, key) => (acc && acc[key] !== undefined ? acc[key] : undefined), obj);
+}
+
+function pick(record, keys = []) {
+  for (const key of keys) {
+    const value = key.includes('.') ? getByPath(record, key) : record?.[key];
+    if (value !== undefined && value !== null && String(value).trim() !== '') return value;
+  }
+  return '';
+}
+
+function inferMimeFromUrl(url = '', contentType = '') {
+  if (contentType) return contentType;
+  const pathname = (() => { try { return new URL(url).pathname; } catch { return url; } })();
+  const ext = path.extname(pathname).slice(1).toLowerCase();
+  if (ext === 'pdf') return 'application/pdf';
+  if (ext === 'docx') return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+  if (['html', 'htm'].includes(ext)) return 'text/html';
+  if (['hwpx', 'owpml'].includes(ext)) return 'application/owpml';
+  if (ext === 'hwp') return 'application/x-hwp';
+  return 'text/plain';
+}
+
+function recordsFromBody(body, contentType = '', url = '') {
+  if (Buffer.isBuffer(body)) return [{ title: url, description: body.toString('utf-8'), url }];
+  if (typeof body === 'string') return flattenRecords(body).map((record) => ({ ...record, _lifepass_source_url: url }));
+  return flattenRecords(body).map((record) => ({ ...record, _lifepass_source_url: url }));
+}
+
+function pageUrls(source, baseUrl, env, config) {
+  const maxPages = Math.max(1, Number(env[source.maxPagesEnv] || config.maxPagesPerSource || 1));
+  const urls = [];
+  const pagination = source.pagination;
+  if (!pagination) {
+    urls.push(withApiParams(baseUrl, {
+      key: env[source.apiKeyEnv],
+      authParam: source.authParam || 'serviceKey',
+      defaultParams: source.defaultParams || {},
+    }));
+    return urls.filter(Boolean);
+  }
+  for (let page = 1; page <= maxPages; page += 1) {
+    const params = {
+      [pagination.pageParam]: page,
+      [pagination.sizeParam]: pagination.size,
+    };
+    urls.push(withApiParams(baseUrl, {
+      key: env[source.apiKeyEnv],
+      authParam: source.authParam || 'serviceKey',
+      defaultParams: source.defaultParams || {},
+      params,
+    }));
+  }
+  return urls.filter(Boolean);
+}
+
+async function fetchApiRecords(url, config) {
+  const { body, contentType } = await fetchWithTimeout(url, { timeoutMs: config.requestTimeoutMs });
+  return { records: recordsFromBody(body, contentType, url), contentType, url };
+}
+
+function detailIds(records, source) {
+  const idKeys = source.detail?.idKeys || source.support?.idKeys || ['id', 'serviceId', 'servId', 'wlfareInfoId', 'plcyNo'];
+  return records
+    .map((record) => ({ record, id: pick(record, idKeys) }))
+    .filter((x) => x.id)
+    .map((x) => ({ ...x, id: String(x.id).trim() }));
+}
+
+async function enrichWithEndpoint(records, source, env, config, endpointEnv, detailConfig, targetKey) {
+  const detailUrl = endpointEnv ? env[endpointEnv] : '';
+  if (!detailUrl || !detailConfig) return records;
+  const maxDetails = Math.min(
+    Math.max(0, Number(env[source.maxDetailsEnv] || config.maxDetailsPerSource || detailConfig.maxDetails || 0)),
+    detailConfig.maxDetails || 25,
+  );
+  if (!maxDetails) return records;
+  const pairs = detailIds(records, { detail: detailConfig }).slice(0, maxDetails);
+  const byObject = new WeakMap(records.map((record) => [record, { ...record }]));
+  for (const { record, id } of pairs) {
+    const target = byObject.get(record) || record;
+    try {
+      const url = withApiParams(detailUrl, {
+        key: env[source.apiKeyEnv],
+        authParam: source.authParam || 'serviceKey',
+        defaultParams: source.defaultParams || {},
+        params: { [detailConfig.param || 'id']: id },
+      });
+      const { records: detailRecords } = await fetchApiRecords(url, config);
+      const detailRecord = detailRecords[0] || {};
+      target[targetKey] = detailRecord;
+      target[`${targetKey}_url`] = url;
+    } catch (error) {
+      target[`${targetKey}_error`] = error.message;
+    }
+    byObject.set(record, target);
+  }
+  return records.map((record) => byObject.get(record) || record);
+}
+
+async function enrichRecords(records, source, env, config) {
+  let enriched = records;
+  enriched = await enrichWithEndpoint(enriched, source, env, config, source.detailUrlEnv, source.detail, '_lifepass_detail');
+  enriched = await enrichWithEndpoint(enriched, source, env, config, source.supportConditionsUrlEnv, source.support, '_lifepass_support_conditions');
+  return enriched;
+}
+
 async function collectOfficialApi(source, config, env = process.env) {
   const baseUrl = env[source.apiBaseEnv];
   if (!baseUrl) {
     return { source, records: [], skipped: true, reason: `${source.apiBaseEnv} 환경변수가 없어 수집을 건너뜁니다.` };
   }
-  const url = withServiceKey(baseUrl, env[source.apiKeyEnv]);
-  const { body, contentType } = await fetchWithTimeout(url, { timeoutMs: config.requestTimeoutMs });
-  let records = [];
-  if (typeof body === 'string' && contentType.includes('xml')) {
-    records = [{ title: source.label, description: body, url }];
-  } else if (typeof body === 'string') {
-    try { records = flattenRecords(JSON.parse(body)); } catch { records = [{ title: source.label, description: body, url }]; }
-  } else {
-    records = flattenRecords(body);
+  if (looksLikeDataPortalDocPage(baseUrl)) {
+    return { source, records: [], skipped: true, reason: `${source.apiBaseEnv} 값이 data.go.kr 소개 페이지입니다. 실제 API 호출 엔드포인트로 교체해야 합니다.` };
   }
-  return { source: { ...source, lastFetchedUrl: url }, records, skipped: false };
+  if (source.apiKeyEnv && !env[source.apiKeyEnv]) {
+    return { source, records: [], skipped: true, reason: `${source.apiKeyEnv} 인증키가 없어 수집을 건너뜁니다.` };
+  }
+
+  const urls = pageUrls(source, baseUrl, env, config);
+  const records = [];
+  const fetchedUrls = [];
+  for (const url of urls) {
+    try {
+      const result = await fetchApiRecords(url, config);
+      fetchedUrls.push(result.url);
+      records.push(...result.records);
+      if (!result.records.length) break;
+    } catch (error) {
+      records.push({ title: `${source.label} 수집 오류`, description: error.message, url, _lifepass_error: true });
+      break;
+    }
+  }
+  const enriched = await enrichRecords(records, source, env, config);
+  return { source: { ...source, lastFetchedUrl: fetchedUrls[0] || urls[0], fetchedUrls }, records: enriched, skipped: false };
 }
 
 async function collectAllowlistCrawler(source, config, env = process.env) {
@@ -36,22 +157,15 @@ async function collectAllowlistCrawler(source, config, env = process.env) {
   }
   const records = [];
   for (const url of urls) {
-    const { body, contentType } = await fetchWithTimeout(url, { timeoutMs: config.requestTimeoutMs });
-    let text;
-    let parser;
-    if (typeof body === 'string' && contentType.includes('html')) {
-      const extracted = extractTextFromHtml(body);
-      text = extracted.text;
-      parser = extracted.parser;
-    } else if (typeof body === 'string') {
-      text = body;
-      parser = 'server-text-response';
-    } else {
-      const extracted = await extractTextFromBuffer(Buffer.from(JSON.stringify(body)), 'response.json', 'application/json');
-      text = extracted.text;
-      parser = extracted.parser;
+    try {
+      const { body, contentType } = await fetchWithTimeout(url, { timeoutMs: config.requestTimeoutMs, asBuffer: true });
+      const pathname = (() => { try { return new URL(url).pathname; } catch { return url; } })();
+      const extracted = await extractTextFromBuffer(body, path.basename(pathname) || 'notice.html', inferMimeFromUrl(url, contentType));
+      const text = extracted.text || '';
+      records.push({ title: text.split(/\r?\n/).find(Boolean) || url, description: text, url, parser: extracted.parser });
+    } catch (error) {
+      records.push({ title: `${source.label} 수집 오류`, description: error.message, url, _lifepass_error: true });
     }
-    records.push({ title: text.split(/\r?\n/).find(Boolean) || url, description: text, url, parser });
   }
   return { source, records, skipped: false };
 }
@@ -115,8 +229,7 @@ export async function ingestPolicySources(options = {}) {
 export async function ingestLocalPolicyFile(filePath, sourceLabel = '로컬 정책 문서') {
   const config = getServerConfig();
   const raw = await fs.readFile(filePath);
-  const ext = path.extname(filePath).slice(1).toLowerCase();
-  const extracted = await extractTextFromBuffer(raw, filePath, ext === 'html' ? 'text/html' : 'text/plain');
+  const extracted = await extractTextFromBuffer(raw, filePath);
   const source = { id: 'local-upload', label: sourceLabel, strategy: 'manual_upload', priority: 60 };
   const normalized = normalizePolicyRecord({ title: path.basename(filePath), description: extracted.text }, source, { parser: extracted.parser });
   await recordSnapshot(config.storeDir, {
