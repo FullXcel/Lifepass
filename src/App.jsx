@@ -157,7 +157,22 @@ function useDerived(profile, benefits) {
 
 export default function App() {
   const [activeTab, setActiveTab] = useState(0);
-  const [benefits] = useState(benefitsSeed);
+  const [approvedPolicies, setApprovedPolicies] = useState([]);
+  const benefits = useMemo(() => {
+    const merged = new Map();
+    for (const benefit of benefitsSeed) merged.set(benefit.id, benefit);
+    for (const policy of approvedPolicies) {
+      if (policy?.id && policy?.name) {
+        merged.set(policy.id, {
+          ...policy,
+          required_docs: Array.isArray(policy.required_docs) ? policy.required_docs : [],
+          conflicts_with: Array.isArray(policy.conflicts_with) ? policy.conflicts_with : [],
+          rule: policy.rule || { all: [] },
+        });
+      }
+    }
+    return Array.from(merged.values());
+  }, [approvedPolicies]);
   const [profile, setProfile] = useState(normalizeProfile(sampleProfiles[0]?.profile || DEFAULT_PROFILE));
   const [docResult, setDocResult] = useState(null);
   const [docLoading, setDocLoading] = useState(false);
@@ -167,6 +182,13 @@ export default function App() {
   const [policyAdmin, setPolicyAdmin] = useState({ sources: [], enabled: [], drafts: [], policies: [] });
   const [policyAdminLoading, setPolicyAdminLoading] = useState(false);
   const [policyAdminMessage, setPolicyAdminMessage] = useState('');
+  const [adminToken, setAdminToken] = useState(() => localStorage.getItem('lifepassAdminToken') || '');
+  const adminHeaders = useMemo(() => (adminToken ? { 'x-admin-token': adminToken } : {}), [adminToken]);
+  const saveAdminToken = (value) => {
+    setAdminToken(value);
+    if (value) localStorage.setItem('lifepassAdminToken', value);
+    else localStorage.removeItem('lifepassAdminToken');
+  };
   const derived = useDerived(profile, benefits);
 
   const loadPolicyAdmin = async () => {
@@ -175,18 +197,25 @@ export default function App() {
     try {
       const [sourcesRes, draftsRes, policiesRes] = await Promise.all([
         fetch('/api/sources'),
-        fetch('/api/admin/review'),
+        fetch('/api/admin/review', { headers: adminHeaders }),
         fetch('/api/policies'),
       ]);
       if (!sourcesRes.ok) throw new Error('정책 수집 서버에 연결할 수 없습니다. 먼저 npm run server를 실행해 주세요.');
       const sources = await sourcesRes.json();
       const drafts = draftsRes.ok ? await draftsRes.json() : { drafts: [] };
       const policies = policiesRes.ok ? await policiesRes.json() : { policies: [] };
+      const approved = (policies.policies || []).map((p) => ({
+        ...p,
+        required_docs: Array.isArray(p.required_docs) ? p.required_docs : [],
+        conflicts_with: Array.isArray(p.conflicts_with) ? p.conflicts_with : [],
+        rule: p.rule || { all: [] },
+      })).filter((p) => p.id && p.name);
+      setApprovedPolicies(approved);
       setPolicyAdmin({
         sources: sources.sources || [],
         enabled: sources.enabled || [],
         drafts: drafts.drafts || [],
-        policies: policies.policies || [],
+        policies: approved,
       });
     } catch (error) {
       setPolicyAdminMessage(error?.message || String(error));
@@ -201,7 +230,7 @@ export default function App() {
     try {
       const res = await fetch('/api/ingest/run', {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: { 'content-type': 'application/json', ...adminHeaders },
         body: JSON.stringify({ forceReview: false }),
       });
       const data = await res.json();
@@ -218,7 +247,7 @@ export default function App() {
   const reviewPolicyDraft = async (draftId, action) => {
     setPolicyAdminLoading(true);
     try {
-      const res = await fetch(`/api/admin/review/${encodeURIComponent(draftId)}/${action}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ reviewer: 'local-admin' }) });
+      const res = await fetch(`/api/admin/review/${encodeURIComponent(draftId)}/${action}`, { method: 'POST', headers: { 'content-type': 'application/json', ...adminHeaders }, body: JSON.stringify({ reviewer: 'local-admin' }) });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || '검수 처리 실패');
       setPolicyAdminMessage(action === 'approve' ? '정책 후보를 승인했습니다.' : '정책 후보를 반려했습니다.');
@@ -232,7 +261,7 @@ export default function App() {
 
   useEffect(() => {
     loadPolicyAdmin();
-  }, []);
+  }, [adminHeaders]);
 
   const handleDocument = async (event) => {
     const file = event.target.files?.[0];
@@ -496,6 +525,18 @@ export default function App() {
               <Metric label="검수 대기" value={`${policyAdmin.drafts.length}건`} />
               <Metric label="승인 정책" value={`${policyAdmin.policies.length}건`} />
               <Metric label="서버 상태" value={policyAdminMessage && policyAdminMessage.includes('연결할 수 없습니다') ? '확인 필요' : '연결 시도'} />
+            </div>
+            <div className="admin-token-row">
+              <label>
+                <span>관리자 토큰</span>
+                <input
+                  type="password"
+                  value={adminToken}
+                  onChange={(e) => saveAdminToken(e.target.value)}
+                  placeholder=".env의 LIFEPASS_ADMIN_TOKEN 입력"
+                />
+              </label>
+              <p className="muted">토큰은 이 브라우저에만 저장되며, 관리자 API 호출 시 x-admin-token 헤더로 전송됩니다.</p>
             </div>
             <button className="primary" onClick={loadPolicyAdmin} disabled={policyAdminLoading}>상태 새로고침</button>
             <button className="primary secondary-action" onClick={runPolicyIngestion} disabled={policyAdminLoading}>공식 API 정책 수집 실행</button>
