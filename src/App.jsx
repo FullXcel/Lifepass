@@ -158,21 +158,21 @@ function useDerived(profile, benefits) {
 export default function App() {
   const [activeTab, setActiveTab] = useState(0);
   const [approvedPolicies, setApprovedPolicies] = useState([]);
-  const benefits = useMemo(() => {
-    const merged = new Map();
-    for (const benefit of benefitsSeed) merged.set(benefit.id, benefit);
-    for (const policy of approvedPolicies) {
-      if (policy?.id && policy?.name) {
-        merged.set(policy.id, {
-          ...policy,
-          required_docs: Array.isArray(policy.required_docs) ? policy.required_docs : [],
-          conflicts_with: Array.isArray(policy.conflicts_with) ? policy.conflicts_with : [],
-          rule: policy.rule || { all: [] },
-        });
-      }
-    }
-    return Array.from(merged.values());
+  const activeExternalPolicies = useMemo(() => {
+    return approvedPolicies
+      .filter((policy) => policy?.id && policy?.name)
+      .map((policy) => ({
+        ...policy,
+        required_docs: Array.isArray(policy.required_docs) ? policy.required_docs : [],
+        conflicts_with: Array.isArray(policy.conflicts_with) ? policy.conflicts_with : [],
+        rule: policy.rule || { all: [] },
+      }));
   }, [approvedPolicies]);
+  const usingFallbackPolicies = activeExternalPolicies.length === 0;
+  const benefits = useMemo(() => {
+    if (activeExternalPolicies.length > 0) return activeExternalPolicies;
+    return benefitsSeed;
+  }, [activeExternalPolicies]);
   const [profile, setProfile] = useState(normalizeProfile(sampleProfiles[0]?.profile || DEFAULT_PROFILE));
   const [docResult, setDocResult] = useState(null);
   const [docLoading, setDocLoading] = useState(false);
@@ -430,6 +430,7 @@ export default function App() {
         <main className="tab-panel">
           <Section title="현재 받을 수 있는 혜택" subtitle="입력한 정보를 등록된 정책 조건과 비교해 지금 신청 가능성이 높은 혜택을 보여줍니다.">
             <div className="metrics-row">
+              <Metric label="정책 출처" value={usingFallbackPolicies ? '데모 정책' : '수집 정책'} note={usingFallbackPolicies ? '외부 승인 정책이 없을 때만 사용' : `${activeExternalPolicies.length}개 승인 정책 기준`} />
               <Metric label="가능 혜택" value={`${derived.evaluations.filter((e) => e.eligible).length}개`} />
               <Metric label="최적 선택" value={`${derived.plan.selected.length}개`} />
               <Metric label="월 환산효과" value={money(derived.plan.total_monthly_value)} />
