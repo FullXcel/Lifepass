@@ -15,14 +15,14 @@
   },
   "dependencies": {
     "@vitejs/plugin-react": "latest",
-    "vite": "latest",
-    "react": "latest",
-    "react-dom": "latest",
-    "papaparse": "latest",
+    "dotenv": "^17.4.2",
     "jszip": "latest",
     "mammoth": "latest",
+    "papaparse": "latest",
     "pdfjs-dist": "latest",
-    "tesseract.js": "latest"
-  },
-  "devDependencies": {}
+    "react": "latest",
+    "react-dom": "latest",
+    "tesseract.js": "latest",
+    "vite": "latest"
+  }
 }
