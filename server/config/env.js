@@ -33,6 +33,8 @@ export function getServerConfig(env = process.env) {
   return {
     rootDir: ROOT_DIR,
     storeDir: env.POLICY_STORE_DIR || DEFAULT_STORE_DIR,
+    databaseUrl: env.DATABASE_URL || '',
+    policyRefreshTtlHours: envNumber('POLICY_REFRESH_TTL_HOURS', 24, env),
     port: envNumber('LIFEPASS_API_PORT', 8787, env),
     host: env.LIFEPASS_API_HOST || '0.0.0.0',
     adminToken: env.LIFEPASS_ADMIN_TOKEN || '',
@@ -73,6 +75,12 @@ export function getPolicyApiConfig(env = process.env) {
     worknet: {
       serviceKey: env.WORKNET_SERVICE_KEY || '',
       jobUrl: env.WORKNET_JOB_API_URL || '',
+    },
+    law: {
+      oc: env.LAW_OPEN_API_OC || '',
+      searchUrl: env.LAW_SEARCH_API_URL || '',
+      serviceUrl: env.LAW_SERVICE_API_URL || '',
+      queries: envList('LAW_POLICY_QUERIES', env),
     },
     localNoticeUrls: envList('LOCAL_NOTICE_URLS', env),
   };
