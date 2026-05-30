@@ -3,13 +3,13 @@ import { generateRuleFromPolicySignals, generateWarningRuleFromPolicySignals } f
 import { sha256 } from './policyStore.js';
 
 const TITLE_KEYS = [
-  'title', 'name', 'servNm', 'serviceName', '서비스명', '사업명', 'policyName', 'plcyNm', 'plcyName',
+  'title', 'name', '법령명한글', '법령명', 'lawNm', 'lsNm', 'servNm', 'serviceName', '서비스명', '사업명', 'policyName', 'plcyNm', 'plcyName',
   'svcNm', 'svcName', 'bizNm', 'programName', 'recrutPblancTtl', 'pblancNm', 'wantedTitle', 'jobTitle',
   '_lifepass_detail.servNm', '_lifepass_detail.serviceName', '_lifepass_detail.plcyNm', '_lifepass_detail.svcNm',
 ];
 
 const SUMMARY_KEYS = [
-  'summary', 'description', 'servDgst', '서비스목적', '지원내용', 'servicePurpose', 'supportContent',
+  'summary', 'description', '조문내용', '법령내용', '제개정이유', 'servDgst', '서비스목적', '지원내용', 'servicePurpose', 'supportContent',
   'plcyExplnCn', 'plcyCn', 'policyCn', 'svcDgst', 'svcCn', 'bizPrpsCn', 'recrutPbancCn', 'jobCont',
   '_lifepass_detail.summary', '_lifepass_detail.description', '_lifepass_detail.servDgst', '_lifepass_detail.plcyExplnCn',
   '_lifepass_support_conditions.description', '_lifepass_support_conditions.supportContent',
@@ -38,12 +38,12 @@ const DOC_KEYS = [
 ];
 
 const URL_KEYS = [
-  'url', 'link', 'detailUrl', 'applyUrl', '신청URL', '바로가기', 'homepageUrl', 'referenceUrl', 'siteUrl',
+  'url', 'link', '법령상세링크', 'detailLink', 'detailUrl', 'applyUrl', '신청URL', '바로가기', 'homepageUrl', 'referenceUrl', 'siteUrl',
   '_lifepass_source_url', '_lifepass_detail_url', 'onlineApplyUrl',
 ];
 
 const ID_KEYS = [
-  'id', 'serviceId', 'svcId', 'servId', 'wlfareInfoId', '정책ID', 'plcyNo', 'bizId', 'policyId',
+  'id', '법령일련번호', 'MST', 'mst', '법령ID', 'serviceId', 'svcId', 'servId', 'wlfareInfoId', '정책ID', 'plcyNo', 'bizId', 'policyId',
   'recrutPblancId', 'wantedAuthNo', 'wantedNo', 'pblancId',
 ];
 
@@ -91,7 +91,8 @@ function textFromRecord(record = {}) {
   ].filter(Boolean).join('\n');
 }
 
-function inferDomain(text = '') {
+function inferDomain(text = '', source = {}) {
+  if (source.kind === 'legal_basis' || /법령|조문|시행령|시행규칙/.test(source.label || '')) return '법령근거';
   if (/월세|임대|주거|전세|보증금|공공주택|주택|입주/.test(text)) return '주거';
   if (/취업|구직|훈련|고용|일자리|채용|직업|근로/.test(text)) return '고용';
   if (/청년|대학생|졸업|사회초년/.test(text)) return '청년';
@@ -129,7 +130,7 @@ export function normalizePolicyRecord(record = {}, source = {}, context = {}) {
   const warningRule = generateWarningRuleFromPolicySignals(signals);
   const contentHash = sha256(rawText);
   const id = `${sourceId}-${externalId}`.replace(/[^a-zA-Z0-9가-힣_-]/g, '-').slice(0, 120);
-  const domain = inferDomain(rawText);
+  const domain = inferDomain(rawText, source);
   const requiredDocs = splitDocs(pick(record, DOC_KEYS), signals.required_docs || []);
   const benefit = {
     id,
@@ -142,6 +143,7 @@ export function normalizePolicyRecord(record = {}, source = {}, context = {}) {
     required_docs: requiredDocs,
     apply_url: extractUrl(record),
     exclusive_group: domain === '주거' ? 'housing_support_auto' : undefined,
+    legal_basis: source.kind === 'legal_basis',
     conflicts_with: [],
     rule,
     warning_rule: warningRule,
@@ -165,15 +167,16 @@ export function normalizePolicyRecord(record = {}, source = {}, context = {}) {
       source_modified_at: pick(record, MODIFIED_KEYS) || context.last_modified || null,
       parser: context.parser || 'record-normalizer',
       needs_review: true,
-      review_reasons: buildReviewReasons(signals, rule, record),
+      review_reasons: buildReviewReasons(signals, rule, record, source),
     },
     rawText,
   };
 }
 
-function buildReviewReasons(signals, rule, record = {}) {
+function buildReviewReasons(signals, rule, record = {}, source = {}) {
   const reasons = [];
   if (record._lifepass_error) reasons.push('수집 과정에서 오류 응답이 발생했습니다. 원문 URL과 인증키를 확인해야 합니다.');
+  if (source.kind === 'legal_basis' || record?.legal_basis || record?.source?.kind === 'legal_basis') reasons.push('법령 데이터는 혜택 룰이 아니라 정책 판단 근거로 검수해야 합니다.');
   if (!rule.all?.length) reasons.push('자동으로 생성된 자격 조건이 부족합니다.');
   if (!signals.support_amount) reasons.push('지원 금액을 확정하지 못했습니다.');
   if (!signals.income_percent_criteria?.length) reasons.push('소득 기준을 확정하지 못했습니다.');
