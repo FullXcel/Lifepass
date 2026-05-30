@@ -445,7 +445,7 @@ export default function App() {
             </Section>
           )}
 
-          <Section title="CSV 일괄 분석은 보조 기능으로 축소" subtitle="핵심은 내 정보 불러오기이지만, 기관용 정제 데이터가 있을 때만 간단히 사용할 수 있게 남겼습니다.">
+          <Section title="CSV 일괄 분석(기관용)" subtitle="다수의 사용자 데이터가 정리된 csv 파일을 업로드하여 일괄 분석합니다.">
             <input className="file-input" type="file" accept=".csv" onChange={handleBatchCsv} />
             {batchRows.length > 0 && (
               <>
