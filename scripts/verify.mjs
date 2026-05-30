@@ -62,7 +62,7 @@ const appSource = fs.readFileSync(path.join(root, 'src/App.jsx'), 'utf-8');
 const tabMatch = appSource.match(/const TABS = \[([\s\S]*?)\];/);
 assert(tabMatch, 'TABS 선언 없음');
 const tabCount = (tabMatch[1].match(/'/g) || []).length / 2;
-assert(tabCount === 5, `탭 개수가 5개가 아님: ${tabCount}`);
+assert(tabCount === 6, `탭 개수가 6개가 아님: ${tabCount}`);
 assert(!/['\"]\d+\.\s/.test(tabMatch[1]), '탭 이름에 숫자 접두사가 남아 있음');
 assert(!appSource.includes('텍스트 직접 입력</h3>'), '텍스트 직접 입력 창구가 아직 남아 있음');
 assert(!appSource.includes('onClick={applyText}'), '텍스트 입력 적용 버튼이 아직 남아 있음');
@@ -70,23 +70,28 @@ assert(appSource.includes('approvedPolicies') && appSource.includes('setApproved
 assert(appSource.includes('activeExternalPolicies') && appSource.includes('usingFallbackPolicies'), '외부 승인 정책 우선 사용 및 데모 정책 fallback 로직이 없음');
 assert(appSource.includes('if (activeExternalPolicies.length > 0) return activeExternalPolicies;'), '외부 정책이 있으면 데모 정책을 제외하는 로직이 없음');
 assert(appSource.includes('x-admin-token'), '관리자 API 호출에 x-admin-token 헤더를 보내는 로직이 없음');
+assert(appSource.includes('landing-screen') && appSource.includes('정책·법령 자동 수집'), '초기 랜딩 화면 또는 정책·법령 설명 UI가 없음');
+assert(appSource.includes('legalReferences') && appSource.includes("domain !== '법령근거'"), '법령 근거를 혜택 매칭에서 분리하는 로직이 없음');
 
 const envSource = fs.readFileSync(path.join(root, 'server/config/env.js'), 'utf-8');
 assert(envSource.includes('dotenv.config'), '.env를 로드하는 dotenv 설정이 없음');
 assert(envSource.includes('getPolicyApiConfig'), '정책 API 환경변수 설정 함수가 없음');
+assert(envSource.includes('databaseUrl') && envSource.includes('POLICY_REFRESH_TTL_HOURS'), 'PostgreSQL 또는 API 캐시 TTL 환경변수 설정이 없음');
 const sourceConfig = fs.readFileSync(path.join(root, 'server/config/policySources.js'), 'utf-8');
-for (const sourceId of ['bokjiro-central-welfare', 'bokjiro-local-welfare', 'gov24-benefits', 'youth-policy', 'local-notice-allowlist']) {
+for (const sourceId of ['bokjiro-central-welfare', 'bokjiro-local-welfare', 'gov24-benefits', 'law-current-welfare-acts', 'youth-policy', 'local-notice-allowlist']) {
   assert(sourceConfig.includes(sourceId), `정책 수집 소스 누락: ${sourceId}`);
 }
 assert(sourceConfig.includes('authParam') && sourceConfig.includes('detailUrlEnv'), 'API별 인증 파라미터 또는 상세 URL 설정이 없음');
+assert(sourceConfig.includes('LAW_OPEN_API_OC') && sourceConfig.includes('LAW_POLICY_QUERIES'), '국가법령정보센터 법령 수집 설정이 없음');
 const httpSource = fs.readFileSync(path.join(root, 'server/lib/httpClient.js'), 'utf-8');
 assert(httpSource.includes('withApiParams'), 'API별 인증 파라미터를 처리하는 withApiParams 함수가 없음');
 assert(httpSource.includes('parseXmlRecords'), 'XML 응답을 record로 변환하는 로직이 없음');
 const runnerSource = fs.readFileSync(path.join(root, 'server/lib/ingestionRunner.js'), 'utf-8');
 assert(runnerSource.includes('enrichRecords') && runnerSource.includes('looksLikeDataPortalDocPage'), '상세조회 보강 또는 data.go.kr 문서 URL 방어 로직이 없음');
+assert(runnerSource.includes('getCachedApiResponse') && runnerSource.includes('saveApiResponse'), 'API 응답 캐시 사용 로직이 없음');
 
 const pkg = readJson('package.json');
-for (const dep of ['react', 'react-dom', 'vite', 'pdfjs-dist', 'mammoth', 'tesseract.js', 'jszip', 'papaparse', 'dotenv']) {
+for (const dep of ['react', 'react-dom', 'vite', 'pdfjs-dist', 'mammoth', 'tesseract.js', 'jszip', 'papaparse', 'dotenv', 'pg']) {
   assert(pkg.dependencies[dep], `의존성 누락: ${dep}`);
 }
 for (const script of ['server', 'ingest:once', 'ingest:schedule']) {
@@ -186,5 +191,5 @@ console.log(`- 문서 추출 근거: ${extraction.evidence.length}`);
 console.log(`- schema coverage: ${Math.round(mapping.coverage * 100)}%`);
 console.log(`- audit score: ${audit.audit_score}`);
 console.log(`- 신청 준비 할 일: ${applicationWorkflow.tasks.length}`);
-console.log('- React 탭 수: 5, 숫자 접두사 없음');
-console.log('- 정책 자동 수집 백엔드/정규화/룰 생성 검증 완료');
+console.log('- React 탭 수: 6, 숫자 접두사 없음');
+console.log('- 정책·법령 자동 수집, PostgreSQL/캐시 저장, 백엔드/정규화/룰 생성 검증 완료');
