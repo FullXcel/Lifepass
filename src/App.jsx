@@ -333,10 +333,7 @@ export default function App() {
               <div className="eyebrow">LifePass · 복지 혜택 최대화 플랫폼</div>
               <h1>내 상황과 정책·법령 데이터를 한 번에 연결해 받을 수 있는 혜택을 찾아냅니다</h1>
               <p>문서에서 사용자 조건을 읽고, 공식 정책 API와 국가법령정보센터 데이터를 수집·저장한 뒤, 현재 신청 가능성·복지절벽·신청 준비 순서를 한 화면에서 정리합니다.</p>
-              <div className="hero-actions">
-                <button className="primary hero-cta" onClick={() => setActiveTab(1)}>내 정보로 시작하기</button>
-                <button className="primary ghost-action" onClick={() => setActiveTab(5)}>정책 수집 상태 보기</button>
-              </div>
+             
             </div>
             <div className="landing-orbit" aria-hidden="true">
               <div className="orbit-card card-a">정책 API</div>
