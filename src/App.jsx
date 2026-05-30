@@ -36,6 +36,7 @@ import {
 } from './logic/documentPipeline.js';
 
 const TABS = [
+  '홈',
   '내 정보 불러오기',
   '받을 수 있는 혜택',
   '복지절벽 미리보기',
@@ -158,9 +159,10 @@ function useDerived(profile, benefits) {
 export default function App() {
   const [activeTab, setActiveTab] = useState(0);
   const [approvedPolicies, setApprovedPolicies] = useState([]);
+  const [legalReferences, setLegalReferences] = useState([]);
   const activeExternalPolicies = useMemo(() => {
     return approvedPolicies
-      .filter((policy) => policy?.id && policy?.name)
+      .filter((policy) => policy?.id && policy?.name && policy?.domain !== '법령근거')
       .map((policy) => ({
         ...policy,
         required_docs: Array.isArray(policy.required_docs) ? policy.required_docs : [],
@@ -211,6 +213,7 @@ export default function App() {
         rule: p.rule || { all: [] },
       })).filter((p) => p.id && p.name);
       setApprovedPolicies(approved);
+      setLegalReferences((policies.policies || []).filter((p) => p?.domain === '법령근거'));
       setPolicyAdmin({
         sources: sources.sources || [],
         enabled: sources.enabled || [],
@@ -323,18 +326,52 @@ export default function App() {
 
   return (
     <div className="app-shell">
-      <header className="hero">
-        <div>
-          <div className="eyebrow">LifePass · 문서 기반 복지 혜택 안내</div>
-          <h1>내 상황에 맞는 복지 혜택과 신청 준비 순서를 한 번에 확인하세요</h1>
-          <p>상담 메모나 정책 문서를 넣으면 현재 받을 수 있는 혜택, 앞으로 달라질 가능성, 먼저 준비할 서류를 순서대로 정리해 줍니다.</p>
-        </div>
-        <div className="hero-card">
-          <Metric label="정책 룰" value={`${benefits.length}개`} note="등록된 정책 기준" />
-          <Metric label="최적 조합" value={`${derived.plan.selected.length}개`} note={money(derived.plan.total_monthly_value)} />
-          <Metric label="확인 우선도" value={`${derived.agent.priority_score}점`} note={derived.agent.priority_grade} />
-        </div>
-      </header>
+      {activeTab === 0 && (
+        <main className="landing-screen">
+          <section className="landing-hero">
+            <div className="landing-copy">
+              <div className="eyebrow">LifePass · 복지 혜택 최대화 플랫폼</div>
+              <h1>내 상황과 정책·법령 데이터를 한 번에 연결해 받을 수 있는 혜택을 찾아냅니다</h1>
+              <p>문서에서 사용자 조건을 읽고, 공식 정책 API와 국가법령정보센터 데이터를 수집·저장한 뒤, 현재 신청 가능성·복지절벽·신청 준비 순서를 한 화면에서 정리합니다.</p>
+              <div className="hero-actions">
+                <button className="primary hero-cta" onClick={() => setActiveTab(1)}>내 정보로 시작하기</button>
+                <button className="primary ghost-action" onClick={() => setActiveTab(5)}>정책 수집 상태 보기</button>
+              </div>
+            </div>
+            <div className="landing-orbit" aria-hidden="true">
+              <div className="orbit-card card-a">정책 API</div>
+              <div className="orbit-card card-b">법령 근거</div>
+              <div className="orbit-card card-c">PostgreSQL 캐시</div>
+              <div className="orbit-core">LifePass</div>
+            </div>
+          </section>
+
+          <section className="feature-grid">
+            <article className="feature-card gradient-blue">
+              <span>01</span>
+              <h3>문서 기반 내 조건 추출</h3>
+              <p>상담 메모, 임대차계약 정보, 소득·주거 상황을 읽어 나이·지역·소득·월세 기준으로 정리합니다.</p>
+            </article>
+            <article className="feature-card gradient-purple">
+              <span>02</span>
+              <h3>정책·법령 자동 수집</h3>
+              <p>복지로, 정부24, 청년정책 API와 국가법령정보센터 법령 데이터를 함께 수집해 정책 판단 근거를 보강합니다.</p>
+            </article>
+            <article className="feature-card gradient-orange">
+              <span>03</span>
+              <h3>복지절벽 시뮬레이션</h3>
+              <p>소득이 생기거나 가구 조건이 바뀔 때 상실·신규 혜택과 신청 순서 조정 필요성을 미리 보여줍니다.</p>
+            </article>
+          </section>
+
+          <section className="dashboard-strip">
+            <Metric label="매칭 정책" value={`${benefits.length}개`} note={usingFallbackPolicies ? '데모 정책 기준' : '승인 정책 기준'} />
+            <Metric label="법령 근거" value={`${legalReferences.length}건`} note="승인된 법령 데이터" />
+            <Metric label="최적 조합" value={`${derived.plan.selected.length}개`} note={money(derived.plan.total_monthly_value)} />
+            <Metric label="확인 우선도" value={`${derived.agent.priority_score}점`} note={derived.agent.priority_grade} />
+          </section>
+        </main>
+      )}
 
       <nav className="tabs">
         {TABS.map((tab, idx) => (
@@ -342,7 +379,7 @@ export default function App() {
         ))}
       </nav>
 
-      {activeTab === 0 && (
+      {activeTab === 1 && (
         <main className="tab-panel">
           <Section title="내 정보 불러오기" subtitle="문서나 상담 메모에서 나이, 거주지역, 소득, 월세처럼 판정에 필요한 정보를 읽어옵니다.">
             <div className="two-col">
@@ -426,7 +463,7 @@ export default function App() {
         </main>
       )}
 
-      {activeTab === 1 && (
+      {activeTab === 2 && (
         <main className="tab-panel">
           <Section title="현재 받을 수 있는 혜택" subtitle="입력한 정보를 등록된 정책 조건과 비교해 지금 신청 가능성이 높은 혜택을 보여줍니다.">
             <div className="metrics-row">
@@ -456,7 +493,7 @@ export default function App() {
         </main>
       )}
 
-      {activeTab === 2 && (
+      {activeTab === 3 && (
         <main className="tab-panel">
           <Section title="생애전환·복지절벽 시뮬레이션" subtitle="실업급여 종료, 소득 발생, 소득 구간 변화에 따라 혜택 신규/상실을 보여주는 LifePass의 핵심 차별점입니다.">
             <div className="metrics-row">
@@ -476,7 +513,7 @@ export default function App() {
         </main>
       )}
 
-      {activeTab === 3 && (
+      {activeTab === 4 && (
         <main className="tab-panel">
           <Section title="신청 준비하기" subtitle="받을 가능성이 높은 혜택부터 서류 준비, 신청, 결과 확인 순서로 정리합니다.">
             <div className="metrics-row">
@@ -506,7 +543,7 @@ export default function App() {
         </main>
       )}
 
-      {activeTab === 4 && (
+      {activeTab === 5 && (
         <main className="tab-panel">
           <Section title="판정 근거 확인하기" subtitle="어떤 조건 때문에 가능 또는 불가능으로 판단했는지 확인할 수 있습니다." right={<button className="primary" onClick={exportReport}>리포트 저장</button>}>
             <div className="metrics-row">
@@ -525,6 +562,7 @@ export default function App() {
               <Metric label="수집 소스" value={`${policyAdmin.sources.length}개`} note={`${policyAdmin.enabled.length}개 활성`} />
               <Metric label="검수 대기" value={`${policyAdmin.drafts.length}건`} />
               <Metric label="승인 정책" value={`${policyAdmin.policies.length}건`} />
+              <Metric label="법령 근거" value={`${legalReferences.length}건`} />
               <Metric label="서버 상태" value={policyAdminMessage && policyAdminMessage.includes('연결할 수 없습니다') ? '확인 필요' : '연결 시도'} />
             </div>
             <div className="admin-token-row">
@@ -544,6 +582,10 @@ export default function App() {
             {policyAdminMessage && <div className={policyAdminMessage.includes('실패') || policyAdminMessage.includes('연결할 수 없습니다') ? 'warn-box' : 'info-box'}>{policyAdminMessage}</div>}
             <h3>수집 소스</h3>
             <SimpleTable rows={policyAdmin.sources.map((s) => ({ 소스: s.label, 방식: s.strategy === 'official_api' ? '공식 API' : '허용 URL 보조 수집', 우선순위: s.priority, 상태: policyAdmin.enabled.includes(s.id) ? '활성' : '비활성', 설명: s.note }))} />
+            <h3>승인된 법령 근거</h3>
+            {legalReferences.length === 0 ? <p className="muted">승인된 법령 데이터가 없습니다. LAW_OPEN_API_OC를 설정한 뒤 수집하고 법령 후보를 승인하세요.</p> : (
+              <SimpleTable rows={legalReferences.slice(0, 10).map((law) => ({ 법령명: law.name, 출처: law.source?.label || '국가법령정보센터', 설명: law.description }))} />
+            )}
             <h3>검수 대기 정책 후보</h3>
             {policyAdmin.drafts.length === 0 ? <p className="muted">검수 대기 중인 정책 후보가 없습니다. API 키와 엔드포인트를 설정한 뒤 수집을 실행하세요.</p> : (
               <div className="trace-list">
