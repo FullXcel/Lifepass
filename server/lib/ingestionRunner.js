@@ -5,7 +5,7 @@ import { getServerConfig } from '../config/env.js';
 import { fetchWithTimeout, flattenRecords, looksLikeDataPortalDocPage, withApiParams } from './httpClient.js';
 import { extractTextFromBuffer } from './textExtractors.js';
 import { normalizePolicyRecord } from './policyNormalizer.js';
-import { recordSnapshot, saveRawDocument, sha256, upsertDraft, rebuildSearchIndex, storeSummary } from './policyStore.js';
+import { getCachedApiResponse, recordSnapshot, saveApiResponse, saveRawDocument, sha256, upsertDraft, rebuildSearchIndex, storeSummary } from './policyStore.js';
 
 function envList(name, env = process.env) {
   return String(env[name] || '').split(',').map((x) => x.trim()).filter(Boolean);
@@ -42,36 +42,60 @@ function recordsFromBody(body, contentType = '', url = '') {
   return flattenRecords(body).map((record) => ({ ...record, _lifepass_source_url: url }));
 }
 
+function sourceQueries(source, env = process.env) {
+  const configured = source.queryEnv ? envList(source.queryEnv, env) : [];
+  return configured.length ? configured : (source.defaultQueries || []);
+}
+
 function pageUrls(source, baseUrl, env, config) {
   const maxPages = Math.max(1, Number(env[source.maxPagesEnv] || config.maxPagesPerSource || 1));
   const urls = [];
   const pagination = source.pagination;
-  if (!pagination) {
-    urls.push(withApiParams(baseUrl, {
-      key: env[source.apiKeyEnv],
-      authParam: source.authParam || 'serviceKey',
-      defaultParams: source.defaultParams || {},
-    }));
-    return urls.filter(Boolean);
-  }
-  for (let page = 1; page <= maxPages; page += 1) {
-    const params = {
-      [pagination.pageParam]: page,
-      [pagination.sizeParam]: pagination.size,
-    };
-    urls.push(withApiParams(baseUrl, {
-      key: env[source.apiKeyEnv],
-      authParam: source.authParam || 'serviceKey',
-      defaultParams: source.defaultParams || {},
-      params,
-    }));
+  const queries = sourceQueries(source, env);
+  const queryValues = queries.length ? queries : [null];
+  for (const query of queryValues) {
+    if (!pagination) {
+      urls.push(withApiParams(baseUrl, {
+        key: env[source.apiKeyEnv],
+        authParam: source.authParam || 'serviceKey',
+        defaultParams: source.defaultParams || {},
+        params: query ? { [source.queryParam || 'query']: query } : {},
+      }));
+      continue;
+    }
+    for (let page = 1; page <= maxPages; page += 1) {
+      const params = {
+        [pagination.pageParam]: page,
+        [pagination.sizeParam]: pagination.size,
+        ...(query ? { [source.queryParam || 'query']: query } : {}),
+      };
+      urls.push(withApiParams(baseUrl, {
+        key: env[source.apiKeyEnv],
+        authParam: source.authParam || 'serviceKey',
+        defaultParams: source.defaultParams || {},
+        params,
+      }));
+    }
   }
   return urls.filter(Boolean);
 }
 
-async function fetchApiRecords(url, config) {
-  const { body, contentType } = await fetchWithTimeout(url, { timeoutMs: config.requestTimeoutMs });
-  return { records: recordsFromBody(body, contentType, url), contentType, url };
+async function fetchApiRecords(url, config, options = {}) {
+  const cacheKey = sha256(url);
+  if (!options.forceRefresh) {
+    const cached = await getCachedApiResponse(config.storeDir, cacheKey, config.policyRefreshTtlHours);
+    if (cached) {
+      return {
+        records: recordsFromBody(cached.body, cached.contentType, cached.url || url),
+        contentType: cached.contentType,
+        url: cached.url || url,
+        cached: true,
+      };
+    }
+  }
+  const { body, contentType, status } = await fetchWithTimeout(url, { timeoutMs: config.requestTimeoutMs });
+  await saveApiResponse(config.storeDir, cacheKey, { body, contentType, status, url });
+  return { records: recordsFromBody(body, contentType, url), contentType, url, cached: false };
 }
 
 function detailIds(records, source) {
@@ -101,7 +125,7 @@ async function enrichWithEndpoint(records, source, env, config, endpointEnv, det
         defaultParams: source.defaultParams || {},
         params: { [detailConfig.param || 'id']: id },
       });
-      const { records: detailRecords } = await fetchApiRecords(url, config);
+      const { records: detailRecords } = await fetchApiRecords(url, config, { forceRefresh: config.forceRefresh });
       const detailRecord = detailRecords[0] || {};
       target[targetKey] = detailRecord;
       target[`${targetKey}_url`] = url;
@@ -137,7 +161,7 @@ async function collectOfficialApi(source, config, env = process.env) {
   const fetchedUrls = [];
   for (const url of urls) {
     try {
-      const result = await fetchApiRecords(url, config);
+      const result = await fetchApiRecords(url, config, { forceRefresh: config.forceRefresh });
       fetchedUrls.push(result.url);
       records.push(...result.records);
       if (!result.records.length) break;
@@ -177,7 +201,7 @@ async function collectSource(source, config, env = process.env) {
 }
 
 export async function ingestPolicySources(options = {}) {
-  const config = { ...getServerConfig(), ...(options.config || {}) };
+  const config = { ...getServerConfig(), ...(options.config || {}), forceRefresh: Boolean(options.forceRefresh) };
   const env = options.env || process.env;
   const sources = options.sources || enabledSources(env);
   const startedAt = new Date().toISOString();
