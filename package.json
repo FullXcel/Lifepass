@@ -23,6 +23,7 @@
     "react": "latest",
     "react-dom": "latest",
     "tesseract.js": "latest",
-    "vite": "latest"
+    "vite": "latest",
+    "pg": "^8.13.1"
   }
 }
