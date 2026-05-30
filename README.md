@@ -354,15 +354,15 @@ LIFEPASS_ADMIN_TOKEN=change-me-before-production
 
 ---
 
-### 7.3 정책 저장 위치
+### 7.3 정책 저장 위치와 PostgreSQL 캐시
 
 ```env
+DATABASE_URL=postgresql://lifepass:lifepass@localhost:5432/lifepass
 POLICY_STORE_DIR=./server/data/policy_store
+POLICY_REFRESH_TTL_HOURS=24
 ```
 
-수집한 정책 원문, 검수 대기 정책, 승인된 정책, 검색 인덱스가 저장되는 위치입니다.
-
-이 폴더는 실행 중에 생기는 데이터이므로 Git에 올리지 않는 것이 좋습니다.
+`DATABASE_URL`을 설정하면 수집한 정책, 법령 근거, 원문, 검색 인덱스, API 응답 캐시를 PostgreSQL에 저장합니다. 같은 API URL은 `POLICY_REFRESH_TTL_HOURS` 안에서는 DB 캐시를 우선 사용하므로, 한 번 가져온 데이터를 매 실행마다 다시 호출하지 않습니다. `DATABASE_URL`을 비워두면 기존처럼 `POLICY_STORE_DIR` 아래 JSON 파일 저장소를 사용합니다. PostgreSQL을 사용할 경우 새 의존성인 `pg`가 필요하므로 `npm install`을 다시 실행하세요.
 
 ---
 
@@ -400,7 +400,21 @@ GOV24_BENEFIT_API_URL=
 
 ---
 
-### 7.6 수집 소스 사용 여부
+### 7.6 국가법령정보센터 법령 데이터 설정
+
+```env
+ENABLE_LAW_WELFARE_ACTS=true
+LAW_OPEN_API_OC=
+LAW_SEARCH_API_URL=http://www.law.go.kr/DRF/lawSearch.do
+LAW_SERVICE_API_URL=http://www.law.go.kr/DRF/lawService.do
+LAW_POLICY_QUERIES=복지,기초생활보장,청년,주거급여,고용보험
+```
+
+`LAW_OPEN_API_OC`에는 국가법령정보센터 공동활용 Open API에서 발급받은 OC 값을 입력합니다. 수집기는 `LAW_POLICY_QUERIES`에 적은 검색어로 복지·주거·고용 관련 현행 법령 목록을 조회하고, 가능한 경우 본문 조회 API로 상세 내용을 보강합니다. 법령 데이터는 혜택 매칭 룰로 바로 사용하지 않고, 정책 판단 근거 자료로 별도 표시합니다.
+
+---
+
+### 7.7 수집 소스 사용 여부
 
 ```env
 ENABLE_BOKJIRO_CENTRAL=true
@@ -417,7 +431,7 @@ API 키나 URL이 아직 없다면 해당 값을 `false`로 두는 것이 좋습
 
 ---
 
-### 7.7 지자체 공고 보조 수집
+### 7.8 지자체 공고 보조 수집
 
 ```env
 ENABLE_LOCAL_NOTICE_CRAWLER=false
@@ -454,7 +468,7 @@ LOCAL_NOTICE_URLS=
 
 ### 8.2 정책 관리자 흐름
 
-1. `.env`에 공식 API 키와 API 주소를 설정합니다.
+1. `.env`에 공식 API 키, 국가법령정보센터 OC 값, 필요 시 `DATABASE_URL`을 설정합니다.
 2. `npm run server`로 백엔드 서버를 실행합니다.
 3. `npm run ingest:once`로 정책 수집을 한 번 실행합니다.
 4. 수집된 정책 후보가 검수 대기 목록에 올라옵니다.
