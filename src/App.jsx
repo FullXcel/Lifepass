@@ -485,7 +485,6 @@ export default function App() {
             <div className="landing-orbit" aria-hidden="true">
               <div className="orbit-card card-a">정책 API</div>
               <div className="orbit-card card-b">법령 근거</div>
-              <div className="orbit-card card-c">PostgreSQL 캐시</div>
               <div className="orbit-core">LifePass</div>
             </div>
           </section>
