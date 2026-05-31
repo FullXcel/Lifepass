@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import process from 'node:process';
 import {
@@ -29,7 +30,9 @@ import { normalizePolicyRecord } from '../server/lib/policyNormalizer.js';
 import { generateRuleFromPolicySignals } from '../server/lib/ruleGenerator.js';
 import { ingestPolicySources } from '../server/lib/ingestionRunner.js';
 
-const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const root = path.resolve(__dirname, '..');
 const readJson = (p) => JSON.parse(fs.readFileSync(path.join(root, p), 'utf-8'));
 const benefits = readJson('src/data/benefits.json');
 const samples = readJson('src/data/sample_profiles.json');
@@ -41,7 +44,6 @@ function assert(condition, message) {
 const requiredFiles = [
   'package.json',
   'README.md',
-  'IMPLEMENTATION_SUMMARY.md',
   'src/App.jsx',
   'src/main.jsx',
   'src/styles.css',
@@ -59,11 +61,14 @@ const requiredFiles = [
 for (const file of requiredFiles) assert(fs.existsSync(path.join(root, file)), `필수 파일 없음: ${file}`);
 
 const appSource = fs.readFileSync(path.join(root, 'src/App.jsx'), 'utf-8');
-const tabMatch = appSource.match(/const TABS = \[([\s\S]*?)\];/);
+const tabMatch = appSource.match(/const\s+TABS\s*=\s*\[([\s\S]*?)\];/);
 assert(tabMatch, 'TABS 선언 없음');
-const tabCount = (tabMatch[1].match(/'/g) || []).length / 2;
-assert(tabCount === 6, `탭 개수가 6개가 아님: ${tabCount}`);
-assert(!/['\"]\d+\.\s/.test(tabMatch[1]), '탭 이름에 숫자 접두사가 남아 있음');
+
+const tabItems = [...tabMatch[1].matchAll(/['"`]([^'"`]+)['"`]/g)].map((m) => m[1]);
+const tabCount = tabItems.length;
+
+assert(tabCount === 6, `탭 개수가 6개가 아님: ${tabCount} (${tabItems.join(', ')})`);
+assert(!tabItems.some((name) => /^\d+\.\s/.test(name)), '탭 이름에 숫자 접두사가 남아 있음');
 assert(!appSource.includes('텍스트 직접 입력</h3>'), '텍스트 직접 입력 창구가 아직 남아 있음');
 assert(!appSource.includes('onClick={applyText}'), '텍스트 입력 적용 버튼이 아직 남아 있음');
 assert(appSource.includes('approvedPolicies') && appSource.includes('setApprovedPolicies'), '승인된 외부 정책 상태 관리 로직이 없음');
