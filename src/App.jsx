@@ -147,6 +147,19 @@ function sourceLabelOf(item, fallback = "출처 미상") {
   return item?.source?.label || item?.source_label || fallback;
 }
 
+function linkCellFor(item) {
+  const href = item?.apply_url || item?.source?.original_url || '';
+  if (href) return { url: href, label: '링크 열기' };
+  if (item?.link_status === 'api_trace_only') return 'API 호출 URL만 확인되어 사용자용 링크는 숨김';
+  return item?.link_reason || '공개 신청·상세 링크 없음';
+}
+
+function LinkNotice({ item }) {
+  const href = item?.apply_url || item?.source?.original_url || '';
+  if (href) return <SafeLink href={href}>링크 열기</SafeLink>;
+  return <span className="muted">{linkCellFor(item)}</span>;
+}
+
 function importanceText(value) {
   const score = Number(value || 0);
   if (score >= 90) return `${score}점 · 매우 높음`;
@@ -619,7 +632,7 @@ export default function App() {
     중요도: importanceText(ev.priority),
     충족조건: ev.matched.slice(0, 3).join(", "),
     미충족조건: ev.unmet.slice(0, 3).join(", "),
-    안내링크: ev.apply_url,
+    안내링크: linkCellFor(ev),
   }));
   const timelineRows = derived.timeline.map((r) => ({
     시점: r.label,
@@ -1144,11 +1157,9 @@ export default function App() {
                     <b>{money(b.monthly_value)}</b> · {b.domain} · 중요도 {importanceText(b.priority)} · 출처 {sourceLabelOf(b, usingFallbackPolicies ? "데모 정책" : "출처 미상")}
                   </p>
                   <ImportanceDetails score={b.priority} />
-                  {b.apply_url && (
-                    <p className="link-line">
-                      신청·안내 <SafeLink href={b.apply_url}>링크 열기</SafeLink>
-                    </p>
-                  )}
+                  <p className="link-line">
+                    신청·안내 <LinkNotice item={b} />
+                  </p>
                 </article>
               ))}
             </div>
@@ -1166,10 +1177,11 @@ export default function App() {
               ))}
             </ul>
             <SimpleTable
-              rows={derived.plan.rejected_due_to_conflict.map((b) => ({
-                제외혜택: b.name,
-                분야: b.domain,
-                월환산: money(b.monthly_value),
+              rows={(derived.plan.conflict_details || []).map((detail) => ({
+                제외혜택: detail.benefit_name,
+                충돌대상: detail.blockers.map((b) => b.name).join(', ') || '선택된 혜택',
+                정확한사유: detail.reason,
+                금액비교: detail.comparison,
               }))}
             />
           </Section>
@@ -1572,8 +1584,12 @@ export default function App() {
                           값: draft.source?.label || draft.source?.id,
                         },
                         {
-                          항목: "출처 링크",
-                          값: draft.source?.original_url || draft.benefit?.apply_url,
+                          항목: "사용자용 링크",
+                          값: linkCellFor({ ...draft.benefit, source: draft.source }),
+                        },
+                        {
+                          항목: "링크 상태",
+                          값: draft.benefit?.link_reason || draft.benefit?.link_status || '확인 필요',
                         },
                         { 항목: "변경유형", 값: draft.change_type || "new" },
                         {
