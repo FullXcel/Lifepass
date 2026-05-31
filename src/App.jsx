@@ -111,6 +111,33 @@ function SimpleTable({ rows, limit = 12 }) {
   );
 }
 
+const MONEY_FIELDS = new Set([
+  "monthly_income",
+  "expected_monthly_income",
+  "rent",
+  "deposit",
+  "assets_million",
+  "medical_expense_3m",
+  "debt_monthly_payment",
+]);
+
+function formatCommaNumber(value) {
+  if (value === null || value === undefined || value === "") return "";
+
+  const raw = String(value).replace(/[^\d.-]/g, "");
+  if (!raw || raw === "-") return raw;
+
+  const [integerPart, decimalPart] = raw.split(".");
+  const sign = integerPart.startsWith("-") ? "-" : "";
+  const digits = integerPart.replace("-", "");
+
+  const formattedInteger = digits.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+
+  return decimalPart !== undefined
+    ? `${sign}${formattedInteger}.${decimalPart}`
+    : `${sign}${formattedInteger}`;
+}
+
 function ProfileEditor({ profile, onChange }) {
   const rows = profileToEditableRows(profile);
   const update = (field, raw) => {
@@ -147,7 +174,7 @@ function ProfileEditor({ profile, onChange }) {
             </select>
           ) : (
             <input
-              value={value ?? ""}
+              value={MONEY_FIELDS.has(field) ? formatCommaNumber(value) : value ?? ""}
               onChange={(e) => update(field, e.target.value)}
             />
           )}
