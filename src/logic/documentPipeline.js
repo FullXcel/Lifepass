@@ -254,7 +254,7 @@ export function validateExtraction(extraction) {
   const [safe, baseWarnings] = validateProfile(profile);
   const issues = [...baseWarnings];
   const confirmations = [];
-  if (!profile.age || profile.age === DEFAULT_PROFILE.age) issues.push('나이를 문서에서 확실히 찾지 못했습니다. 실제 나이를 확인해 주세요.'); else confirmations.push('나이 확인');
+  if (!profile.age || profile.age === DEFAULT_PROFILE.age) issues.push('나이가 제대로 입력되어 있는지 확인해 주세요.'); else confirmations.push('나이 확인');
   if (!profile.region || profile.region === DEFAULT_PROFILE.region) issues.push('거주 지역이 기본값일 수 있습니다. 실제 거주 지역을 확인해 주세요.'); else confirmations.push('지역 확인');
   if (!profile.monthly_income && !/(소득 없음|무소득|월소득 0|소득 0)/.test(extraction.rawText || '')) issues.push('월소득을 0원으로 읽었습니다. 실제로 소득이 없는 상태인지 확인해 주세요.');
   if (profile.rent > 0 && !profile.has_housing_contract) issues.push('월세 정보는 찾았지만 임대차계약서 여부는 확인하지 못했습니다. 계약서가 있는지 확인해 주세요.'); else if (profile.rent > 0) confirmations.push('월세/주거 정보 확인');
