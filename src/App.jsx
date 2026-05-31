@@ -946,7 +946,6 @@ export default function App() {
             subtitle="받을 가능성이 높은 혜택부터 서류 준비, 신청, 결과 확인 순서로 정리합니다."
           >
             <div className="metrics-row">
-              <Metric label="신청 흐름" value={derived.workflow.workflow_id} />
               <Metric
                 label="준비할 일"
                 value={`${derived.workflow.tasks.length}개`}
