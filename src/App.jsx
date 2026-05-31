@@ -274,6 +274,144 @@ const LEGAL_BASIS_GUIDE = [
   },
 ];
 
+const LEGAL_ACT_ROLE_RULES = [
+  {
+    pattern: /주거급여/,
+    domains: ["주거", "생활지원"],
+    target: "주거급여·임차료·수선유지급여 등 주거비 지원 정책",
+    role: "주거급여 신청 대상, 임차료·수선유지급여 같은 지원 종류, 소득인정액과 주거 형태에 따른 지급 기준의 근거입니다.",
+    userValue: "월세·전세·자가 여부나 소득 기준 때문에 주거급여 대상이 되는지 확인할 때 원문 기준을 대조할 수 있습니다.",
+  },
+  {
+    pattern: /국민기초생활|기초생활보장/,
+    domains: ["생활지원", "주거", "의료", "교육"],
+    target: "생계급여·의료급여·주거급여·교육급여 등 기초생활 보장 정책",
+    role: "수급권자 범위, 급여 종류, 소득인정액·부양의무자 등 기초생활보장 급여 판단 기준의 근거입니다.",
+    userValue: "내 소득·재산·가구 상황 때문에 기초생활 관련 급여 대상 또는 제외 대상이 되는 이유를 확인할 수 있습니다.",
+  },
+  {
+    pattern: /긴급복지/,
+    domains: ["생활지원", "의료", "주거"],
+    target: "갑작스러운 위기 상황의 생계·의료·주거 긴급지원 정책",
+    role: "실직, 질병, 주거 상실 등 위기사유 인정 범위와 긴급지원의 종류·절차를 정하는 근거입니다.",
+    userValue: "위기 사유를 왜 예/아니오로 먼저 확인하는지, 어떤 상황이 긴급지원 사유가 되는지 원문으로 확인할 수 있습니다.",
+  },
+  {
+    pattern: /고용보험/,
+    domains: ["고용"],
+    target: "실업급여·고용안정·직업능력개발 등 고용보험 기반 정책",
+    role: "고용보험 가입, 실업급여 수급, 직업훈련·고용안정 지원의 대상과 급여 조건을 정하는 근거입니다.",
+    userValue: "퇴사·실업급여 잔여일·고용보험 가입 여부가 추천 결과에 어떤 영향을 주는지 확인할 수 있습니다.",
+  },
+  {
+    pattern: /국민취업지원|구직자 취업촉진/,
+    domains: ["고용", "청년"],
+    target: "국민취업지원제도·구직촉진수당·취업지원서비스 정책",
+    role: "구직자 유형, 소득·재산 요건, 취업지원서비스와 구직촉진수당 지급 범위를 정하는 근거입니다.",
+    userValue: "취업 상태·소득·재산 기준 때문에 국민취업지원제도 대상인지 확인할 때 쓸 수 있습니다.",
+  },
+  {
+    pattern: /청년|위기아동|자립준비|청소년/,
+    domains: ["청년", "생활지원"],
+    target: "청년·청소년·자립준비청년 생활·주거·취업 지원 정책",
+    role: "청년 또는 위기아동·청소년의 지원 대상 범위와 국가·지자체의 지원 책임을 설명하는 근거입니다.",
+    userValue: "나이·가구상황·자립 여부가 청년 지원 정책 추천에 왜 반영되는지 확인할 수 있습니다.",
+  },
+  {
+    pattern: /노인복지/,
+    domains: ["생활지원", "의료"],
+    target: "노인 돌봄·건강·생활안정 지원 정책",
+    role: "노인 복지서비스, 건강·돌봄·생활안정 지원의 대상과 국가·지자체 책무를 설명하는 근거입니다.",
+    userValue: "나이 기준이나 노인가구 여부에 따라 지원 대상이 달라지는 이유를 확인할 수 있습니다.",
+  },
+  {
+    pattern: /장애인/,
+    domains: ["생활지원", "의료", "교육", "고용"],
+    target: "장애인 생활·의료·교육·고용 지원 정책",
+    role: "장애인 등록, 복지서비스, 교육·고용·의료 지원의 대상과 서비스 범위를 설명하는 근거입니다.",
+    userValue: "장애 여부 또는 장애인 가구 조건이 정책 추천에 쓰이는 이유와 확인해야 할 증빙을 파악할 수 있습니다.",
+  },
+  {
+    pattern: /교육|유아교육|영유아보육|초ㆍ중등교육|고등교육|학자금/,
+    domains: ["교육", "청년"],
+    target: "교육비·보육료·장학금·학자금 지원 정책",
+    role: "교육·보육 지원의 대상, 비용 지원 범위, 학교·보육기관 관련 행정 기준을 정하는 근거입니다.",
+    userValue: "학생 여부, 자녀 여부, 학자금·교육비 조건이 추천 결과에 왜 연결되는지 확인할 수 있습니다.",
+  },
+  {
+    pattern: /사회복지사업|사회보장|사회복지/,
+    domains: ["생활지원"],
+    target: "사회복지서비스 제공, 복지시설, 지자체 복지사업 전반",
+    role: "사회복지서비스 제공 체계, 복지시설 운영, 국가·지자체의 복지사업 집행 권한을 설명하는 포괄 근거입니다.",
+    userValue: "개별 지원금의 직접 지급 기준보다는, 복지서비스가 어떤 행정 체계에서 운영되는지 확인할 때 필요합니다.",
+  },
+];
+
+function cleanGenericLawTitle(value = "") {
+  const text = String(value || "").trim();
+  if (!text || /^LawSearch:/i.test(text) || /^target:/i.test(text)) return "";
+  return text;
+}
+
+function extractXmlTag(block = "", tag = "") {
+  const escaped = tag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = String(block || "").match(new RegExp(`<${escaped}>([\\s\\S]*?)<\\/${escaped}>`, "i"));
+  return (match?.[1] || "").replace(/<!\[CDATA\[|\]\]>/g, "").trim();
+}
+
+function extractLawEntriesFromText(text = "") {
+  const source = String(text || "");
+  const blocks = source.match(/<법령일련번호>[\s\S]*?(?=<법령일련번호>|$)/g) || [];
+  const entries = blocks
+    .map((block) => {
+      const name = extractXmlTag(block, "법령명한글");
+      if (!name) return null;
+      const serial = extractXmlTag(block, "법령일련번호");
+      return {
+        name,
+        shortName: extractXmlTag(block, "법령약칭명"),
+        serial,
+        mst: serial,
+        lawId: extractXmlTag(block, "법령ID"),
+        ministry: extractXmlTag(block, "소관부처명"),
+        lawType: extractXmlTag(block, "법령구분명"),
+        effectiveDate: extractXmlTag(block, "시행일자"),
+        detailPath: extractXmlTag(block, "법령상세링크"),
+        rawText: block,
+      };
+    })
+    .filter(Boolean);
+  if (entries.length) return entries;
+
+  const names = [...source.matchAll(/<법령명한글>([\s\S]*?)<\/법령명한글>/g)]
+    .map((match) => match[1]?.trim())
+    .filter(Boolean);
+  return [...new Set(names)].map((name) => ({ name, rawText: source }));
+}
+
+function lawPublicLink(entry = {}, law = {}) {
+  const name = cleanGenericLawTitle(entry.name || law.name);
+  if (name) return `https://www.law.go.kr/법령/${encodeURIComponent(name)}`;
+  return publicHrefFor(law);
+}
+
+function getSpecificLegalRole(entry = {}, law = {}) {
+  const text = [entry.name, entry.shortName, entry.rawText, law.description, law.target].filter(Boolean).join("\n");
+  const rule = LEGAL_ACT_ROLE_RULES.find((item) => item.pattern.test(text));
+  if (rule) return rule;
+  const fallback = inferLegalBasisInfo({
+    ...law,
+    name: cleanGenericLawTitle(entry.name || law.name) || law.name,
+    description: entry.rawText || law.description,
+  });
+  return {
+    domains: fallback.domains,
+    target: fallback.targetScope,
+    role: fallback.role,
+    userValue: fallback.userValue,
+  };
+}
+
 function textOfPolicy(item = {}) {
   return [
     item.name,
@@ -334,17 +472,45 @@ function relatedPoliciesForLaw(law = {}, policies = []) {
 }
 
 function buildLegalBasisRows(legalReferences = [], policies = []) {
-  return legalReferences.map((law) => {
-    const info = inferLegalBasisInfo(law);
-    const related = relatedPoliciesForLaw(law, policies);
-    return {
-      법령명: law.name,
-      수집출처: law.source?.label || "국가법령정보센터",
-      근거가되는대상: related.length ? related.join(", ") : info.targetScope,
-      근거역할: info.role,
-      사용자가알아야하는이유: info.userValue,
-      근거링크: linkCellFor(law),
-    };
+  const rows = [];
+  for (const law of legalReferences) {
+    const sourceText = [law.description, law.target, law.legal_basis_summary, law.legal_basis_role, law.name].filter(Boolean).join("\n");
+    const entries = extractLawEntriesFromText(sourceText);
+    const displayEntries = entries.length
+      ? entries
+      : cleanGenericLawTitle(law.name)
+        ? [{ name: cleanGenericLawTitle(law.name), rawText: sourceText }]
+        : [];
+
+    for (const entry of displayEntries) {
+      const roleInfo = getSpecificLegalRole(entry, law);
+      const lawLike = {
+        ...law,
+        name: entry.name,
+        description: [entry.rawText, law.description].filter(Boolean).join("\n"),
+        related_policy_domains: roleInfo.domains || [],
+        legal_basis_role: roleInfo.role,
+        user_value: roleInfo.userValue,
+      };
+      const related = relatedPoliciesForLaw(lawLike, policies);
+      const publicLink = lawPublicLink(entry, law);
+      rows.push({
+        법령명: entry.shortName ? `${entry.name}(${entry.shortName})` : entry.name,
+        소관부처: entry.ministry || "확인 필요",
+        근거가되는대상: related.length ? related.join(", ") : roleInfo.target,
+        근거역할: roleInfo.role,
+        사용자가알아야하는이유: roleInfo.userValue,
+        근거링크: publicLink ? { url: publicLink, label: "법령 원문 열기" } : linkCellFor(law),
+      });
+    }
+  }
+
+  const seen = new Set();
+  return rows.filter((row) => {
+    const key = `${row.법령명}::${row.소관부처}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
   });
 }
 
@@ -1585,7 +1751,7 @@ export default function App() {
               rows={legalBasisRows.length ? legalBasisRows.slice(0, 6) : [
                 {
                   법령명: "승인된 법령 근거 없음",
-                  수집출처: "-",
+                  소관부처: "-",
                   근거가되는대상: "LAW_OPEN_API_OC 설정 후 법령 후보를 수집·승인하면 표시됩니다.",
                   근거역할: "현재는 정책 추천의 상위 법령 근거를 화면에 연결할 수 없습니다.",
                   사용자가알아야하는이유: "법령 근거가 없으면 최신 공고와 접수 기관 안내를 별도로 확인해야 합니다.",
