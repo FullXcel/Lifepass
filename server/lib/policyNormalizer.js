@@ -40,7 +40,7 @@ const DOC_KEYS = [
 const PUBLIC_URL_KEYS = [
   // 기존 호환성: 일반 record.url도 후보로 보되, sanitizePublicUrl에서 API 호출 URL과 민감 파라미터를 걸러낸다.
   'url', 'link', '법령상세링크', 'detailLink', 'detailUrl', 'applyUrl', '신청URL', '바로가기', 'homepageUrl', 'referenceUrl', 'siteUrl',
-  'onlineApplyUrl', '온라인신청URL', '신청링크', '상세URL',
+  'onlineApplyUrl', '온라인신청URL', '신청링크', '상세URL', '상세조회URL', '상세조회Url', '서비스상세URL', '상세페이지URL',
   '_lifepass_detail.applyUrl', '_lifepass_detail.onlineApplyUrl', '_lifepass_detail.homepageUrl', '_lifepass_detail.referenceUrl',
 ];
 
@@ -217,7 +217,7 @@ export function normalizePolicyRecord(record = {}, source = {}, context = {}) {
       label: source.label || sourceId,
       strategy: source.strategy || 'unknown',
       external_id: externalId,
-      original_url: context.original_url || publicLink.url || '',
+      original_url: publicLink.url || '',
       api_url: apiTraceUrl,
       fetched_urls: source.fetchedUrls || [],
     },
