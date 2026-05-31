@@ -74,10 +74,20 @@ const SECRET_QUERY_PARAMS = new Set([
 ]);
 const URL_PATTERN = /https?:\/\/[^\s<>)\]]+/gi;
 
+function isApiTraceUrl(url) {
+  const host = url.hostname.toLowerCase();
+  const pathname = url.pathname.toLowerCase();
+  if (host.includes("apis.data.go.kr") || host.includes("api.odcloud.kr")) return true;
+  if (pathname.includes("/drf/lawsearch.do") || pathname.includes("/drf/lawservice.do")) return true;
+  if (pathname.includes("/opi/") && /openapivlak|authkey|servicekey/i.test(url.search)) return true;
+  return [...url.searchParams.keys()].some((key) => SECRET_QUERY_PARAMS.has(key.toLowerCase()));
+}
+
 function safeExternalUrl(value) {
   try {
     const url = new URL(String(value || ""));
     if (!/^https?:$/.test(url.protocol)) return "";
+    if (isApiTraceUrl(url)) return "";
     for (const key of [...url.searchParams.keys()]) {
       if (SECRET_QUERY_PARAMS.has(key.toLowerCase())) {
         url.searchParams.delete(key);
@@ -87,6 +97,15 @@ function safeExternalUrl(value) {
   } catch {
     return "";
   }
+}
+
+function publicHrefFor(item) {
+  const candidates = [item?.apply_url, item?.detail_url, item?.source?.original_url].filter(Boolean);
+  for (const href of candidates) {
+    const safe = safeExternalUrl(href);
+    if (safe) return safe;
+  }
+  return "";
 }
 
 function SafeLink({ href, children = "링크 열기" }) {
@@ -148,14 +167,16 @@ function sourceLabelOf(item, fallback = "출처 미상") {
 }
 
 function linkCellFor(item) {
-  const href = item?.apply_url || item?.source?.original_url || '';
+  const href = publicHrefFor(item);
   if (href) return { url: href, label: '링크 열기' };
-  if (item?.link_status === 'api_trace_only') return 'API 호출 URL만 확인되어 사용자용 링크는 숨김';
+  if (item?.link_status === 'api_trace_only' || item?.apply_url || item?.source?.original_url) {
+    return 'API 호출 URL은 수집·추적용이라 사용자용 링크로 숨김';
+  }
   return item?.link_reason || '공개 신청·상세 링크 없음';
 }
 
 function LinkNotice({ item }) {
-  const href = item?.apply_url || item?.source?.original_url || '';
+  const href = publicHrefFor(item);
   if (href) return <SafeLink href={href}>링크 열기</SafeLink>;
   return <span className="muted">{linkCellFor(item)}</span>;
 }
@@ -189,8 +210,8 @@ const POLICY_PRIORITY_GUIDE = [
 ];
 
 const POLICY_IMPORTANCE_BASIS = [
-  { 기준: "원천 정책의 중요도 값", 설명: "서버에서 수집·정규화된 정책 데이터 또는 데모 정책에 저장된 중요도 숫자를 기본값으로 사용합니다." },
-  { 기준: "운영자 검수/소스 설정", 설명: "정책 수집 소스별 중요도와 운영자가 승인한 정책의 우선값이 반영될 수 있습니다." },
+  { 기준: "원천 정책의 기본 우선값", 설명: "서버에서 수집·정규화된 정책 데이터 또는 데모 정책에 저장된 기본값을 출발점으로 사용합니다." },
+  { 기준: "정책 성격별 보정", 설명: "주거·고용·의료·교육 등 분야, 실제 월 환산효과, 취약계층·청년 등 대상자 표현, 사용자용 링크 확인 여부를 반영해 같은 출처 정책도 다른 점수가 나오게 보정합니다." },
   { 기준: "최적 조합에서의 보조 가중치", 설명: "최적 조합 계산은 월 환산효과를 크게 보고, 중요도는 같은 수준의 혜택을 정렬하거나 비교할 때 보조 점수로 사용합니다." },
   { 기준: "자격 판정과의 구분", 설명: "중요도는 정책 자체의 추천 우선값입니다. 사용자가 실제로 받을 수 있는지는 나이, 소득, 지역, 가구원 수 같은 조건 판정으로 따로 결정됩니다." },
 ];
@@ -310,9 +331,10 @@ function ProfileEditor({ profile, onChange }) {
   };
   return (
     <div className="profile-grid">
-      {rows.map(({ field, label, value }) => (
+      {rows.map(({ field, label, value, help }) => (
         <label key={field} className="field-row">
           <span>{label}</span>
+          {help && <small className="field-help">{help}</small>}
           {typeof DEFAULT_PROFILE[field] === "boolean" ? (
             <select
               value={String(Boolean(value))}
@@ -1130,7 +1152,7 @@ export default function App() {
                     항목: "월 환산효과",
                     현재값: money(derived.plan.total_monthly_value),
                     의미: "선택된 혜택을 월 단위 금액으로 환산해 합산한 값입니다.",
-                    결과해석: "일시금은 월평균처럼 단순 환산된 값일 수 있어 실제 지급 주기와 다를 수 있습니다.",
+                    결과해석: "일시금·연간 지원은 월평균처럼 단순 환산하고, 융자·보증의 원금 한도는 실제 지급 현금이 아니므로 월 환산효과에서 제외합니다.",
                   },
                   {
                     항목: "혜택 간 충돌",
@@ -1156,7 +1178,6 @@ export default function App() {
                   <p className="benefit-meta">
                     <b>{money(b.monthly_value)}</b> · {b.domain} · 중요도 {importanceText(b.priority)} · 출처 {sourceLabelOf(b, usingFallbackPolicies ? "데모 정책" : "출처 미상")}
                   </p>
-                  <ImportanceDetails score={b.priority} />
                   <p className="link-line">
                     신청·안내 <LinkNotice item={b} />
                   </p>
@@ -1547,6 +1568,8 @@ export default function App() {
                     : "허용 URL 보조 수집",
                 중요도: importanceText(s.priority),
                 상태: policyAdmin.enabled.includes(s.id) ? "활성" : "비활성",
+                승인정책: policyAdmin.policies.filter((p) => (p.source?.id || p.source_id) === s.id).length,
+                검수대기: policyAdmin.drafts.filter((d) => (d.source?.id || d.source_id) === s.id && d.status === "pending_review").length,
                 설명: s.note,
               }))}
             />
@@ -1562,7 +1585,7 @@ export default function App() {
                   법령명: law.name,
                   출처: law.source?.label || "국가법령정보센터",
                   설명: law.description,
-                  근거링크: law.apply_url || law.source?.original_url,
+                  근거링크: linkCellFor(law),
                 }))}
               />
             )}
