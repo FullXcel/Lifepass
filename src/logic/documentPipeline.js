@@ -10,7 +10,7 @@ import {
 } from './lifepassCore.js';
 
 const FIELD_LABELS = {
-  age: '나이',
+  age: '나이(만 나이 기준)',
   region: '지역',
   district: '시군구',
   household_size: '가구원 수',
