@@ -158,6 +158,106 @@ function moneyToInt(text, defaultUnit = '원') {
   return Math.trunc(value);
 }
 
+
+const SECRET_QUERY_PARAMS = new Set(['servicekey', 'oc', 'authkey', 'openapivlak', 'apikey', 'key']);
+const MONEY_AMOUNT_RE = /(-?\d[\d,]*(?:\.\d+)?\s*(?:억원|천\s*만\s*원|천만원|백\s*만\s*원|백만원|만\s*원|만원|천\s*원|천원|원))/g;
+
+function isApiTraceUrlObject(url) {
+  const host = url.hostname.toLowerCase();
+  const pathname = url.pathname.toLowerCase();
+  if (host.includes('apis.data.go.kr') || host.includes('api.odcloud.kr')) return true;
+  if (pathname.includes('/drf/lawsearch.do') || pathname.includes('/drf/lawservice.do')) return true;
+  if (pathname.includes('/opi/') && /openapivlak|authkey|servicekey/i.test(url.search)) return true;
+  return [...url.searchParams.keys()].some((key) => SECRET_QUERY_PARAMS.has(key.toLowerCase()));
+}
+
+function sanitizeBenefitUrl(value) {
+  try {
+    const url = new URL(String(value || ''));
+    if (!/^https?:$/.test(url.protocol)) return '';
+    if (isApiTraceUrlObject(url)) return '';
+    for (const key of [...url.searchParams.keys()]) {
+      if (SECRET_QUERY_PARAMS.has(key.toLowerCase())) url.searchParams.delete(key);
+    }
+    return url.toString();
+  } catch {
+    return '';
+  }
+}
+
+function publicUrlFromBenefit(benefit = {}) {
+  const candidates = [benefit.apply_url, benefit.detail_url, benefit.source?.original_url].filter(Boolean);
+  for (const href of candidates) {
+    const safe = sanitizeBenefitUrl(href);
+    if (safe) return safe;
+  }
+  return '';
+}
+
+function hasLoanLikeBenefitText(text = '') {
+  return /(융자|대출|담보|원리금|상환|거치|균분상환|금리|연리|이차보전|이자차이|대출금|보증료|신용보증|보증지원|보증한도)/.test(String(text || ''));
+}
+
+function hasMonthlyBenefitContext(text = '') {
+  return /(월\s*(최대|한도|마다|별|액)?|매월|월별|개월\s*마다)/.test(String(text || ''));
+}
+
+function hasAnnualOrOneTimeContext(text = '') {
+  return /(연간|연\s*최대|매년|1년|전년도|장려금|일시|1회|한\s*번|포상금|컨설팅|까지\s*지원|한도)/.test(String(text || ''));
+}
+
+function isBusinessOrProviderSupport(text = '') {
+  return /(시설장|종사자|기관|법인|단체|사업자|기업|소상공인|중소기업|중견기업|농가|어업인|수산업\s*경영인|공동생활가정|그룹홈|어린이집|학교|센터|운영비|인건비|컨설팅|사업체|창업기업)/.test(String(text || ''));
+}
+
+function supportAmountFromText(text = '') {
+  if (hasLoanLikeBenefitText(text)) return 0;
+  const lines = String(text || '').split(/\r?\n|[。]/).map((line) => line.trim()).filter(Boolean);
+  const candidates = [];
+  lines.forEach((line, idx) => {
+    const context = `${lines[idx - 1] || ''}\n${line}\n${lines[idx + 1] || ''}`;
+    if (!/(지원내용|지원금액|지원액|지급액|지원|지급|급여|장려금|수당|교육비|방과후|훈련비|포상금|바우처|이용권|보조|환급)/.test(context)) return;
+    if (hasLoanLikeBenefitText(context)) return;
+    for (const match of line.matchAll(MONEY_AMOUNT_RE)) {
+      const amount = moneyToInt(match[1], 'auto');
+      if (!amount) continue;
+      const near = line.slice(Math.max(0, (match.index || 0) - 24), Math.min(line.length, (match.index || 0) + match[0].length + 24));
+      if (!/(지원|지급|급여|장려금|수당|교육비|훈련비|포상금|바우처|이용권|보조|환급)/.test(near) && /(소득|재산|자산|보증금|월세금|월세|임차보증금|총\s*급여|선정기준|기준|이하|미만|초과)/.test(near)) continue;
+      const monthly = hasMonthlyBenefitContext(line) ? amount : (hasAnnualOrOneTimeContext(line) || amount >= 1500000 ? Math.round(amount / 12) : amount);
+      candidates.push(monthly);
+    }
+  });
+  return candidates.length ? Math.max(...candidates) : 0;
+}
+
+function normalizeBenefitMonthlyValue(benefit = {}) {
+  const raw = Number(benefit.estimated_monthly_value || 0);
+  const text = [benefit.name, benefit.description, benefit.target, benefit.source?.label].filter(Boolean).join('\n');
+  if (hasLoanLikeBenefitText(text) || isBusinessOrProviderSupport(text)) return 0;
+  if (raw > 0) {
+    if (hasMonthlyBenefitContext(text)) return raw;
+    if (hasAnnualOrOneTimeContext(text) || raw >= 1500000) return Math.round(raw / 12);
+    return raw;
+  }
+  return supportAmountFromText(text);
+}
+
+function normalizeBenefitPriority(benefit = {}, monthlyValue = 0) {
+  const base = Number(benefit.priority || 0) || 50;
+  let score = base;
+  const domain = benefit.domain || '기타';
+  const text = [benefit.name, benefit.description, benefit.target].filter(Boolean).join('\n');
+  const domainBonus = { 주거: 8, 고용: 6, 의료: 6, 금융: 3, 교육: 4, 청년: 5, 생활지원: 2, 법령근거: -5, 기타: 0 };
+  score += domainBonus[domain] || 0;
+  if (monthlyValue > 0) score += Math.min(12, Math.ceil(monthlyValue / 100000));
+  if (/(기초생활|차상위|저소득|생계|실업|장애|한부모|청년)/.test(text)) score += 5;
+  if (hasLoanLikeBenefitText(text)) score -= 8;
+  if (isBusinessOrProviderSupport(text)) score -= 12;
+  const publicUrl = publicUrlFromBenefit(benefit);
+  if (!publicUrl && (benefit.apply_url || benefit.source?.original_url)) score -= 3;
+  return Math.max(30, Math.min(98, Math.round(score)));
+}
+
 function spanReplace(text, start, end) {
   return `${text.slice(0, start)}${text.slice(end)}`;
 }
@@ -244,6 +344,15 @@ function compare(actual, op, expected) {
   return false;
 }
 
+function hasEffectiveRule(rule) {
+  if (!rule || typeof rule !== 'object') return false;
+  if (rule.field) return true;
+  if (Array.isArray(rule.all)) return rule.all.length > 0 && rule.all.some(hasEffectiveRule);
+  if (Array.isArray(rule.any)) return rule.any.length > 0 && rule.any.some(hasEffectiveRule);
+  if (rule.not) return hasEffectiveRule(rule.not);
+  return false;
+}
+
 export function evaluateRule(rule, profile) {
   const p = normalizeProfile(profile);
   const traces = [];
@@ -266,21 +375,27 @@ export function evaluateRule(rule, profile) {
 }
 
 export function evaluateBenefit(benefit, profile) {
-  const [eligible, trace] = evaluateRule(benefit.rule, profile);
+  const autoRuleReady = hasEffectiveRule(benefit.rule);
+  const [eligible, trace] = autoRuleReady ? evaluateRule(benefit.rule, profile) : [false, []];
   const matched = trace.filter((t) => t.passed).map((t) => t.label);
-  const unmet = trace.filter((t) => !t.passed).map((t) => t.label);
+  const unmet = autoRuleReady
+    ? trace.filter((t) => !t.passed).map((t) => t.label)
+    : ['자격 조건을 자동 판정할 규칙이 부족해 추천 조합에서 제외했습니다.'];
   const warnings = [];
   if (benefit.warning_rule) {
     const [warningPassed, warningTrace] = evaluateRule(benefit.warning_rule, profile);
     if (warningPassed) warnings.push(...warningTrace.filter((t) => t.passed).map((t) => t.label));
   }
+  const monthlyValue = normalizeBenefitMonthlyValue(benefit);
+  const publicUrl = publicUrlFromBenefit(benefit);
+  const hadNonPublicUrl = Boolean(benefit.apply_url || benefit.source?.original_url);
   return {
     benefit_id: benefit.id,
     name: benefit.name,
     eligible,
-    monthly_value: Number(benefit.estimated_monthly_value || 0),
+    monthly_value: monthlyValue,
     domain: benefit.domain || '기타',
-    priority: Number(benefit.priority || 0),
+    priority: normalizeBenefitPriority(benefit, monthlyValue),
     unmet,
     matched,
     trace,
@@ -290,9 +405,9 @@ export function evaluateBenefit(benefit, profile) {
     conflict_group_label: benefit.exclusive_group_label || benefit.conflict_group_label || '',
     conflict_reason: benefit.exclusive_group_reason || benefit.conflict_reason || '',
     required_docs: benefit.required_docs || [],
-    apply_url: benefit.apply_url || benefit.source?.original_url || '',
-    link_status: benefit.link_status || (benefit.apply_url || benefit.source?.original_url ? 'ok' : 'missing'),
-    link_reason: benefit.link_reason || '',
+    apply_url: publicUrl,
+    link_status: publicUrl ? 'ok' : (benefit.link_status || (hadNonPublicUrl ? 'api_trace_only' : 'missing')),
+    link_reason: publicUrl ? '' : (benefit.link_reason || (hadNonPublicUrl ? 'API 호출 URL은 사용자용 링크가 아니므로 숨겼습니다.' : '공개 신청·상세 링크 없음')),
     source: benefit.source || null,
     source_label: benefit.source?.label || benefit.source_label || '',
     description: benefit.description || '',
