@@ -1,3 +1,8 @@
+export function redactUrlCredentials(value = '') {
+  const text = String(value || '');
+  return text.replace(/([?&](?:serviceKey|OC|authKey|openApiVlak|apiKey|key)=)[^&\s]+/gi, '$1[REDACTED]');
+}
+
 function decodeEntities(text = '') {
   return String(text)
     .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
@@ -25,12 +30,12 @@ export async function fetchWithTimeout(url, options = {}) {
       body = await response.text();
     }
     if (!response.ok) {
-      const err = new Error(`HTTP ${response.status} ${response.statusText} while fetching ${url}`);
+      const err = new Error(`HTTP ${response.status} ${response.statusText} while fetching ${redactUrlCredentials(url)}`);
       err.responseBody = body;
       err.status = response.status;
       throw err;
     }
-    return { body, contentType, status: response.status, url: response.url || url };
+    return { body, contentType, status: response.status, url: response.url || url, redactedUrl: redactUrlCredentials(response.url || url) };
   } finally {
     clearTimeout(timer);
   }
