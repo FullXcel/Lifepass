@@ -288,7 +288,9 @@ export function evaluateBenefit(benefit, profile) {
     conflict_group: benefit.exclusive_group || null,
     conflicts_with: benefit.conflicts_with || [],
     required_docs: benefit.required_docs || [],
-    apply_url: benefit.apply_url || '',
+    apply_url: benefit.apply_url || benefit.source?.original_url || '',
+    source: benefit.source || null,
+    source_label: benefit.source?.label || benefit.source_label || '',
     description: benefit.description || '',
     target: benefit.target || '',
   };
@@ -760,7 +762,7 @@ export function planNotifications(profile, workflow) {
 
 export function solveBenefitPortfolio(evaluations, maxItems = 6) {
   const plan = optimizeBenefits(evaluations);
-  const selected = plan.selected.slice(0, maxItems).map((b) => ({ benefit: b.name, domain: b.domain, monthly_value: b.monthly_value, priority: b.priority }));
+  const selected = plan.selected.slice(0, maxItems).map((b) => ({ benefit: b.name, domain: b.domain, monthly_value: b.monthly_value, priority: b.priority, source: b.source_label || b.source?.label || '' }));
   return { selected, conflict_free: !hasConflict(plan.selected), breakdown: { monthly_value: plan.total_monthly_value, priority_score: plan.selected.reduce((s, b) => s + b.priority, 0), objective_score: plan.total_monthly_value * 1000 + plan.selected.reduce((s, b) => s + b.priority, 0), max_items: maxItems } };
 }
 
