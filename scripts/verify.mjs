@@ -111,6 +111,28 @@ assert(evaluations.length === benefits.length, '정책 전체 평가 개수 불�
 assert(eligible.length >= 5, `가능 혜택 수가 예상보다 적음: ${eligible.length}`);
 assert(plan.selected.length >= 4, `최적 선택 수가 예상보다 적음: ${plan.selected.length}`);
 assert(plan.total_monthly_value > 0, '최적 조합 월환산효과가 0');
+const manyConflictingEvaluations = [
+  ...Array.from({ length: 25 }, (_, idx) => ({
+    benefit_id: `housing-${idx}`,
+    name: `주거 지원 ${idx}`,
+    eligible: true,
+    monthly_value: 100000 + idx,
+    priority: idx,
+    domain: '주거',
+    conflict_group: 'housing_support_auto',
+    conflict_group_label: '주거비/주택지원 중복검토 묶음',
+    conflict_reason: '동일 주거비 보전 성격이라 중복 검토가 필요합니다.',
+    conflicts_with: [],
+    matched: [], unmet: [], trace: [], warnings: [], required_docs: [],
+  })),
+  { benefit_id: 'standalone-cash', name: '독립 생활지원', eligible: true, monthly_value: 50000, priority: 1, domain: '생활지원', conflicts_with: [], matched: [], unmet: [], trace: [], warnings: [], required_docs: [] },
+];
+const largeConflictPlan = optimizeBenefits(manyConflictingEvaluations);
+assert(largeConflictPlan.selected.some((b) => b.benefit_id === 'housing-24'), '대형 상호배타 충돌군에서 최고 금액 혜택을 선택하지 못함');
+assert(largeConflictPlan.selected.some((b) => b.benefit_id === 'standalone-cash'), '독립 혜택이 충돌군 때문에 누락됨');
+assert(largeConflictPlan.conflict_details.length >= 20, '충돌 제외 사유 상세가 충분히 생성되지 않음');
+assert(largeConflictPlan.explanation.some((line) => line.includes('사유:') && line.includes('비교:')), '충돌 설명에 사유/비교 정보가 없음');
+
 
 const timeline = simulateTimeline(sampleProfile, benefits, [0, 1, 3, 6, 12]);
 assert(timeline.length === 5, '타임라인 체크포인트 5개 아님');
@@ -150,6 +172,19 @@ assert(generatedRule.all.some((rule) => rule.field === 'rent'), '정책 룰 생�
 const normalizedPolicy = normalizePolicyRecord({ title: '청년월세 지원 테스트', description: policyText, url: 'https://example.test/policy' }, { id: 'verify-source', label: '검증 소스', strategy: 'official_api', priority: 100 });
 assert(normalizedPolicy.benefit.rule.all.length >= 3, '외부 정책 record 정규화/룰 생성 실패');
 assert(normalizedPolicy.ingestion.content_hash?.length === 64, '정책 변경 감지용 hash 생성 실패');
+const normalizedApiOnlyPolicy = normalizePolicyRecord(
+  { title: 'API 링크 숨김 테스트', description: policyText, _lifepass_source_url: 'http://apis.data.go.kr/test/list?serviceKey=SECRET&pageNo=1' },
+  { id: 'verify-api-source', label: 'API 링크 검증 소스', strategy: 'official_api', priority: 90 },
+);
+assert(!normalizedApiOnlyPolicy.benefit.apply_url, 'API 호출 URL이 사용자용 신청 링크로 노출됨');
+assert(normalizedApiOnlyPolicy.benefit.link_status === 'api_trace_only', `API-only 링크 상태가 부정확함: ${normalizedApiOnlyPolicy.benefit.link_status}`);
+assert(normalizedApiOnlyPolicy.ingestion.review_reasons.some((reason) => reason.includes('사용자용 신청')), '사용자용 링크 미확정 검수 사유 누락');
+const normalizedPublicLinkPolicy = normalizePolicyRecord(
+  { title: '공개 링크 테스트', description: policyText, link: 'https://example.test/apply?serviceKey=SECRET&ok=1' },
+  { id: 'verify-public-link-source', label: '공개 링크 검증 소스', strategy: 'official_api', priority: 90 },
+);
+assert(normalizedPublicLinkPolicy.benefit.apply_url === 'https://example.test/apply?ok=1', `공개 링크 정제 실패: ${normalizedPublicLinkPolicy.benefit.apply_url}`);
+
 const tempStore = fs.mkdtempSync(path.join(root, '.verify-policy-store-'));
 const ingestResult = await ingestPolicySources({ config: { storeDir: tempStore, requestTimeoutMs: 2000 }, env: { ENABLE_BOKJIRO_CENTRAL: 'true', ENABLE_BOKJIRO_LOCAL: 'false', ENABLE_GOV24_BENEFITS: 'false', ENABLE_LOCAL_NOTICE_CRAWLER: 'false' } });
 assert(Array.isArray(ingestResult.skipped) && ingestResult.skipped.length >= 1, '공식 API URL 미설정 시 안전한 skip 처리 실패');
@@ -189,6 +224,7 @@ console.log('✅ LifePass React Lite 자체검증 통과');
 console.log(`- 정책 수: ${benefits.length}`);
 console.log(`- 가능 혜택 수: ${eligible.length}`);
 console.log(`- 최적 선택 수: ${plan.selected.length}`);
+console.log(`- 대형 충돌군 최적 선택 수: ${largeConflictPlan.selected.length}`);
 console.log(`- 월환산효과: ${money(plan.total_monthly_value)}`);
 console.log(`- 타임라인 체크포인트: ${timeline.length}`);
 console.log(`- 복지절벽 경고 시나리오: ${cliffs.filter((row) => row.warnings.length > 0).length}`);
