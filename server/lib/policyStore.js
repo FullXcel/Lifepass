@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { buildSearchIndex } from './searchIndex.js';
-import { redactUrlCredentials } from './httpClient.js';
+import { flattenRecords, redactUrlCredentials } from './httpClient.js';
 
 const FILES = {
   policies: 'policies.json',
@@ -108,7 +108,10 @@ export function sha256(value = '') {
   return crypto.createHash('sha256').update(String(value)).digest('hex');
 }
 
-export async function loadPolicies(storeDir) { return readJson(storeDir, 'policies'); }
+export async function loadPolicies(storeDir) {
+  const [policies, apiCache] = await Promise.all([readJson(storeDir, 'policies'), readJson(storeDir, 'apiCache')]);
+  return enhancePolicyListForDisplay(policies, apiCache);
+}
 export async function loadDrafts(storeDir) { return readJson(storeDir, 'drafts'); }
 export async function loadSnapshots(storeDir) { return readJson(storeDir, 'snapshots'); }
 export async function loadSearchIndex(storeDir) { return readJson(storeDir, 'index'); }
@@ -122,6 +125,106 @@ function sanitizeValue(value) {
     return Object.fromEntries(Object.entries(value).map(([key, child]) => [key, sanitizeValue(child)]));
   }
   return value;
+}
+
+
+const PUBLIC_URL_KEYS = [
+  '상세조회URL', '상세조회Url', '서비스상세URL', '상세페이지URL', '신청URL', '온라인신청URL', '신청링크', '상세URL',
+  'url', 'link', 'detailUrl', 'detailLink', 'applyUrl', 'onlineApplyUrl', 'homepageUrl', 'referenceUrl', 'siteUrl', '바로가기',
+];
+const SECRET_QUERY_PARAMS = new Set(['servicekey', 'oc', 'authkey', 'openapivlak', 'apikey', 'key']);
+const URL_PATTERN = /https?:\/\/[^\s<>)\]]+/i;
+
+function stringifyRecordValue(value) {
+  if (value === undefined || value === null) return '';
+  if (typeof value === 'string') return value.trim();
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  if (Array.isArray(value)) return value.map(stringifyRecordValue).filter(Boolean).join('\n');
+  if (typeof value === 'object') return Object.values(value).map(stringifyRecordValue).filter(Boolean).join('\n');
+  return String(value).trim();
+}
+
+function firstUrl(value = '') {
+  const text = stringifyRecordValue(value);
+  return text.match(URL_PATTERN)?.[0] || text;
+}
+
+function isApiTraceUrl(url) {
+  const host = url.hostname.toLowerCase();
+  const pathname = url.pathname.toLowerCase();
+  if (host.includes('apis.data.go.kr') || host.includes('api.odcloud.kr')) return true;
+  if (pathname.includes('/drf/lawsearch.do') || pathname.includes('/drf/lawservice.do')) return true;
+  if (pathname.includes('/opi/') && /openapivlak|authkey|servicekey/i.test(url.search)) return true;
+  return [...url.searchParams.keys()].some((key) => SECRET_QUERY_PARAMS.has(key.toLowerCase()));
+}
+
+function sanitizePublicUrl(value = '') {
+  try {
+    const url = new URL(firstUrl(value));
+    if (!/^https?:$/.test(url.protocol)) return '';
+    if (isApiTraceUrl(url)) return '';
+    for (const key of [...url.searchParams.keys()]) {
+      if (SECRET_QUERY_PARAMS.has(key.toLowerCase())) url.searchParams.delete(key);
+    }
+    return url.toString();
+  } catch {
+    return '';
+  }
+}
+
+function publicUrlFromRecord(record = {}) {
+  for (const key of PUBLIC_URL_KEYS) {
+    const url = sanitizePublicUrl(record?.[key]);
+    if (url) return url;
+  }
+  const nested = sanitizePublicUrl(record?._lifepass_detail?.상세조회URL || record?._lifepass_detail?.applyUrl || record?._lifepass_detail?.onlineApplyUrl);
+  if (nested) return nested;
+  return '';
+}
+
+function normalizeLookupKey(value = '') {
+  return String(value || '').replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+function buildPublicLinkLookup(apiCache = []) {
+  const byName = new Map();
+  const byId = new Map();
+  for (const entry of apiCache || []) {
+    for (const record of flattenRecords(entry.body)) {
+      const href = publicUrlFromRecord(record);
+      if (!href) continue;
+      const name = normalizeLookupKey(record['서비스명'] || record.serviceName || record.servNm || record.name || record.title);
+      const id = String(record['서비스ID'] || record.serviceId || record.svcId || record.servId || record.id || '').trim();
+      if (name && !byName.has(name)) byName.set(name, href);
+      if (id && !byId.has(id)) byId.set(id, href);
+    }
+  }
+  return { byName, byId };
+}
+
+function enhancePolicyForDisplay(policy = {}, lookup = null) {
+  const next = sanitizeValue(policy || {});
+  const current = sanitizePublicUrl(next.apply_url) || sanitizePublicUrl(next.detail_url) || sanitizePublicUrl(next.source?.original_url);
+  const sourceId = String(next.source?.external_id || next.service_id || next['서비스ID'] || '').trim();
+  const byId = sourceId ? lookup?.byId?.get(sourceId) : '';
+  const byName = lookup?.byName?.get(normalizeLookupKey(next.name));
+  const publicLink = current || byId || byName || '';
+  if (publicLink) {
+    next.apply_url = publicLink;
+    next.link_status = 'ok';
+    next.link_reason = next.link_reason || '공개 상세 페이지 URL을 확인했습니다.';
+  } else if (next.apply_url || next.source?.original_url) {
+    next.apply_url = '';
+    next.link_status = next.link_status || 'api_trace_only';
+    next.link_reason = next.link_reason || 'API 호출 URL은 사용자용 링크가 아니므로 숨겼습니다.';
+  }
+  if (next.source) next.source = { ...next.source, original_url: publicLink || '' };
+  return next;
+}
+
+function enhancePolicyListForDisplay(policies = [], apiCache = []) {
+  const lookup = buildPublicLinkLookup(apiCache);
+  return (policies || []).map((policy) => enhancePolicyForDisplay(policy, lookup));
 }
 
 function isUsableDraft(draft = {}) {
@@ -147,7 +250,8 @@ function draftToCollectedPolicy(draft = {}) {
 
 export async function loadCollectedPolicies(storeDir, options = {}) {
   const { includePendingDrafts = true } = options;
-  const [policies, drafts] = await Promise.all([loadPolicies(storeDir), loadDrafts(storeDir)]);
+  const [policies, drafts, apiCache] = await Promise.all([loadPolicies(storeDir), loadDrafts(storeDir), loadApiCache(storeDir)]);
+  const lookup = buildPublicLinkLookup(apiCache);
   const byId = new Map();
   for (const policy of policies) {
     if (policy?.id) byId.set(policy.id, { ...sanitizeValue(policy), review_status: policy.review_status || 'approved', pending_review: false });
@@ -155,7 +259,7 @@ export async function loadCollectedPolicies(storeDir, options = {}) {
   if (includePendingDrafts) {
     for (const draft of drafts) {
       if (!isUsableDraft(draft)) continue;
-      const candidate = draftToCollectedPolicy(draft);
+      const candidate = enhancePolicyForDisplay(draftToCollectedPolicy(draft), lookup);
       if (candidate?.id && !byId.has(candidate.id)) byId.set(candidate.id, candidate);
     }
   }
