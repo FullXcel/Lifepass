@@ -306,29 +306,85 @@ function hasConflict(items) {
   return false;
 }
 
-export function optimizeBenefits(evaluations) {
-  const eligible = evaluations.filter((ev) => ev.eligible);
-  if (!eligible.length) return { selected: [], rejected_due_to_conflict: [], total_monthly_value: 0, explanation: ['현재 조건에서 확정적으로 선택 가능한 혜택이 없습니다.'] };
+function benefitObjectiveScore(item) {
+  return Number(item.monthly_value || 0) * 1000 + Number(item.priority || 0);
+}
+
+function explainRejectedByConflict(rejected, selected) {
+  return rejected.map((rej) => {
+    const blockers = selected
+      .filter((s) => isConflicting(rej, s))
+      .map((s) => s.name)
+      .join(', ');
+    return `${rej.name}은(는) ${blockers || '선택된 다른 혜택'}와 중복/충돌되어 제외했습니다.`;
+  });
+}
+
+function optimizeBenefitsExact(eligible) {
   let best = [];
   let bestScore = -1;
-  const dfs = (idx, picked) => {
+  const dfs = (idx, picked, score) => {
     if (idx === eligible.length) {
-      if (!picked.length || hasConflict(picked)) return;
-      const value = picked.reduce((s, x) => s + x.monthly_value, 0);
-      const priorityBonus = picked.reduce((s, x) => s + x.priority, 0);
-      const score = value * 1000 + priorityBonus;
-      if (score > bestScore) { bestScore = score; best = [...picked]; }
+      if (picked.length && score > bestScore) {
+        bestScore = score;
+        best = [...picked];
+      }
       return;
     }
-    dfs(idx + 1, picked);
+    dfs(idx + 1, picked, score);
     const candidate = eligible[idx];
-    if (!picked.some((p) => isConflicting(p, candidate))) dfs(idx + 1, [...picked, candidate]);
+    if (!picked.some((p) => isConflicting(p, candidate))) {
+      dfs(idx + 1, [...picked, candidate], score + benefitObjectiveScore(candidate));
+    }
   };
-  dfs(0, []);
+  dfs(0, [], 0);
+  return best;
+}
+
+function optimizeBenefitsGreedy(eligible) {
+  const selected = [];
+  const sorted = [...eligible].sort((a, b) => {
+    const scoreDiff = benefitObjectiveScore(b) - benefitObjectiveScore(a);
+    if (scoreDiff !== 0) return scoreDiff;
+    const valueDiff = Number(b.monthly_value || 0) - Number(a.monthly_value || 0);
+    if (valueDiff !== 0) return valueDiff;
+    const priorityDiff = Number(b.priority || 0) - Number(a.priority || 0);
+    if (priorityDiff !== 0) return priorityDiff;
+    return String(a.name || '').localeCompare(String(b.name || ''), 'ko-KR');
+  });
+
+  for (const candidate of sorted) {
+    if (!selected.some((p) => isConflicting(p, candidate))) selected.push(candidate);
+  }
+  return selected;
+}
+
+export function optimizeBenefits(evaluations) {
+  const eligible = evaluations.filter((ev) => ev.eligible);
+  if (!eligible.length) {
+    return {
+      selected: [],
+      rejected_due_to_conflict: [],
+      total_monthly_value: 0,
+      explanation: ['현재 조건에서 확정적으로 선택 가능한 혜택이 없습니다.'],
+    };
+  }
+
+  // 기존 DFS는 가능 혜택이 100개 이상이면 2^n 조합을 탐색하여 브라우저가
+  // "응답 대기" 상태로 멈췄다. 작은 카탈로그는 정확 탐색을 유지하고,
+  // 공식 API 수집 정책처럼 큰 카탈로그는 충돌을 피하는 점수순 휴리스틱으로 전환한다.
+  const EXACT_OPTIMIZATION_LIMIT = 18;
+  const best = eligible.length <= EXACT_OPTIMIZATION_LIMIT
+    ? optimizeBenefitsExact(eligible)
+    : optimizeBenefitsGreedy(eligible);
+
   const selectedIds = new Set(best.map((b) => b.benefit_id));
   const rejected = eligible.filter((ev) => !selectedIds.has(ev.benefit_id) && best.some((s) => isConflicting(ev, s)));
   const total = best.reduce((s, b) => s + b.monthly_value, 0);
-  const explanation = rejected.map((rej) => `${rej.name}은(는) ${best.filter((s) => isConflicting(rej, s)).map((s) => s.name).join(', ')}와 중복/충돌되어 제외했습니다.`);
+  const explanation = explainRejectedByConflict(rejected, best);
+  if (eligible.length > EXACT_OPTIMIZATION_LIMIT) {
+    explanation.unshift(`가능 혜택 ${eligible.length}건이 감지되어 브라우저 멈춤을 막기 위해 점수순 빠른 조합 탐색을 적용했습니다.`);
+  }
   if (!explanation.length) explanation.push('선택된 혜택 간 명시적 충돌이 없습니다.');
   return { selected: best, rejected_due_to_conflict: rejected, total_monthly_value: total, explanation };
 }
