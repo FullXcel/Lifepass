@@ -216,6 +216,138 @@ const POLICY_IMPORTANCE_BASIS = [
   { 기준: "자격 판정과의 구분", 설명: "중요도는 정책 자체의 추천 우선값입니다. 사용자가 실제로 받을 수 있는지는 나이, 소득, 지역, 가구원 수 같은 조건 판정으로 따로 결정됩니다." },
 ];
 
+
+const LEGAL_SCOPE_RULES = [
+  {
+    domain: "생활지원",
+    label: "생계·긴급복지·기초생활 보장 정책",
+    pattern: /국민기초생활|기초생활보장|긴급복지|생계급여|차상위|사회보장|복지|저소득/,
+  },
+  {
+    domain: "주거",
+    label: "주거급여·공공임대·월세·전월세 지원 정책",
+    pattern: /주거급여|공공주택|임대주택|주택|월세|전세|임대차|주거/,
+  },
+  {
+    domain: "고용",
+    label: "고용보험·국민취업지원·직업훈련·구직 지원 정책",
+    pattern: /고용보험|국민취업지원|직업능력|직업훈련|구직|취업|실업급여|근로자|일자리/,
+  },
+  {
+    domain: "의료",
+    label: "의료급여·건강보험·의료비 지원 정책",
+    pattern: /의료급여|건강보험|의료비|요양|병원|치료|건강/,
+  },
+  {
+    domain: "교육",
+    label: "교육비·장학·학자금 지원 정책",
+    pattern: /교육급여|교육비|장학|학자금|수업료|학교|대학생/,
+  },
+  {
+    domain: "청년",
+    label: "청년 주거·취업·자립 지원 정책",
+    pattern: /청년|청소년|대학생|사회초년|자립준비/,
+  },
+  {
+    domain: "금융",
+    label: "서민금융·채무조정·보증·이자 지원 정책",
+    pattern: /서민금융|채무|신용|보증|이자|대출|금융/,
+  },
+];
+
+const LEGAL_BASIS_GUIDE = [
+  {
+    질문: "어디서 온 데이터인가",
+    설명: "국가법령정보센터 등 공식 법령 출처에서 수집한 현행 법률·시행령·시행규칙·조문 후보입니다.",
+  },
+  {
+    질문: "무엇의 근거인가",
+    설명: "화면에 추천되는 혜택 그 자체가 아니라, 그 혜택의 대상자 범위·급여/지원 기준·집행기관 권한이 어디에서 나오는지 설명하는 상위 근거입니다.",
+  },
+  {
+    질문: "왜 중요한가",
+    설명: "정책 공고나 API 응답은 요약본일 수 있으므로, 법령 근거를 함께 보면 제도 목적과 자격 기준이 임의 안내가 아니라 공식 근거에 기반하는지 확인할 수 있습니다.",
+  },
+  {
+    질문: "사용자는 왜 알아야 하나",
+    설명: "신청 전에는 내가 왜 대상인지·왜 제외될 수 있는지 확인할 수 있고, 상담·문의·이의제기 때 어떤 법적 기준을 확인해야 하는지 알 수 있습니다.",
+  },
+];
+
+function textOfPolicy(item = {}) {
+  return [
+    item.name,
+    item.domain,
+    item.description,
+    item.target,
+    item.legal_basis_summary,
+    item.legal_basis_role,
+    item.user_value,
+    item.source?.label,
+  ].filter(Boolean).join("\n");
+}
+
+function inferLegalBasisInfo(law = {}) {
+  const text = textOfPolicy(law);
+  const declaredDomains = Array.isArray(law.related_policy_domains)
+    ? law.related_policy_domains.filter(Boolean)
+    : [];
+  const matched = LEGAL_SCOPE_RULES.filter((rule) => declaredDomains.includes(rule.domain) || rule.pattern.test(text));
+  const domains = matched.length ? matched.map((rule) => rule.domain) : declaredDomains;
+  const scopeLabels = matched.length ? matched.map((rule) => rule.label) : [];
+  const targetScope = scopeLabels.length ? scopeLabels.join(", ") : "복지·고용·주거 등 관련 정책";
+  return {
+    domains,
+    targetScope,
+    role:
+      law.legal_basis_role ||
+      `${targetScope}의 대상자 범위, 지원 기준, 집행기관 권한을 설명하는 상위 법령 근거입니다.`,
+    userValue:
+      law.user_value ||
+      "사용자는 이 근거를 통해 해당 혜택이 왜 존재하는지, 본인이 어떤 자격 기준 때문에 대상 또는 제외 대상이 되는지, 상담·문의 때 무엇을 확인해야 하는지 알 수 있습니다.",
+    summary:
+      law.legal_basis_summary ||
+      `${law.name || "법령"}은 ${targetScope}와 연결되는 근거 데이터입니다. 직접 지급되는 혜택으로 계산하지 않고 판정 설명과 원문 확인용으로 분리합니다.`,
+  };
+}
+
+function overlapScore(a = "", b = "") {
+  const terms = [...new Set(String(a).match(/[가-힣A-Za-z0-9]{2,}/g) || [])]
+    .filter((term) => !/정책|지원|사업|대상|내용|근거|법률|시행령|시행규칙|관련/.test(term))
+    .slice(0, 40);
+  return terms.reduce((score, term) => score + (String(b).includes(term) ? 1 : 0), 0);
+}
+
+function relatedPoliciesForLaw(law = {}, policies = []) {
+  const info = inferLegalBasisInfo(law);
+  const lawText = textOfPolicy(law);
+  const scored = policies
+    .filter((policy) => policy?.domain !== "법령근거")
+    .map((policy) => {
+      const policyText = textOfPolicy(policy);
+      const domainScore = info.domains.includes(policy.domain) ? 4 : 0;
+      return { name: policy.name, score: domainScore + overlapScore(lawText, policyText) };
+    })
+    .filter((row) => row.score > 0)
+    .sort((a, b) => b.score - a.score || String(a.name).localeCompare(String(b.name), "ko-KR"));
+  return scored.slice(0, 3).map((row) => row.name);
+}
+
+function buildLegalBasisRows(legalReferences = [], policies = []) {
+  return legalReferences.map((law) => {
+    const info = inferLegalBasisInfo(law);
+    const related = relatedPoliciesForLaw(law, policies);
+    return {
+      법령명: law.name,
+      수집출처: law.source?.label || "국가법령정보센터",
+      근거가되는대상: related.length ? related.join(", ") : info.targetScope,
+      근거역할: info.role,
+      사용자가알아야하는이유: info.userValue,
+      근거링크: linkCellFor(law),
+    };
+  });
+}
+
 function ExplanationDetails({ children, title = "상세 설명", summary = "자세히 보기" }) {
   return (
     <details className="explain-details">
@@ -487,6 +619,11 @@ export default function App() {
     : policySourceBreakdown.length <= 2
       ? policySourceBreakdown.map((s) => s.출처).join(", ")
       : `${policySourceBreakdown.slice(0, 2).map((s) => s.출처).join(", ")} 외 ${policySourceBreakdown.length - 2}곳`;
+
+  const legalBasisRows = useMemo(
+    () => buildLegalBasisRows(legalReferences, activeExternalPolicies),
+    [legalReferences, activeExternalPolicies],
+  );
 
   const loadPolicyAdmin = async () => {
     setPolicyAdminLoading(true);
@@ -1431,6 +1568,31 @@ export default function App() {
               <h4>판정점수 점수대</h4>
               <SimpleTable rows={AUDIT_SCORE_GUIDE} />
             </ExplanationDetails>
+            <h3>법령 근거는 무엇을 설명하나</h3>
+            <div className="info-box">
+              <strong>법령 근거는 직접 지급되는 혜택이 아니라, 추천된 정책 판단의 공식 배경입니다.</strong>
+              <p>
+                예를 들어 주거 지원 정책은 주거급여·공공주택·임대차 관련 법령과 연결될 수 있고,
+                고용 지원 정책은 고용보험·국민취업지원·직업훈련 관련 법령과 연결될 수 있습니다.
+                따라서 법령 데이터는 “이 혜택을 받을 수 있다”는 계산값이 아니라
+                “그 판단이 어떤 제도적 근거 위에 있는지”를 설명하는 자료입니다.
+              </p>
+            </div>
+            <ExplanationDetails title="법령 근거를 사용자가 알아야 하는 이유">
+              <SimpleTable rows={LEGAL_BASIS_GUIDE} />
+            </ExplanationDetails>
+            <SimpleTable
+              rows={legalBasisRows.length ? legalBasisRows.slice(0, 6) : [
+                {
+                  법령명: "승인된 법령 근거 없음",
+                  수집출처: "-",
+                  근거가되는대상: "LAW_OPEN_API_OC 설정 후 법령 후보를 수집·승인하면 표시됩니다.",
+                  근거역할: "현재는 정책 추천의 상위 법령 근거를 화면에 연결할 수 없습니다.",
+                  사용자가알아야하는이유: "법령 근거가 없으면 최신 공고와 접수 기관 안내를 별도로 확인해야 합니다.",
+                  근거링크: "-",
+                },
+              ]}
+            />
             <h3>안전 확인 항목</h3>
             <SimpleTable
               rows={derived.audit.controls.map((c) => ({
@@ -1503,8 +1665,8 @@ export default function App() {
                   {
                     항목: "법령 근거",
                     현재값: `${legalReferences.length}건`,
-                    의미: "정책 추천이 아니라 판단 근거 보강용으로 승인된 법령 데이터입니다.",
-                    결과해석: "법령은 혜택 목록에서 제외하고 근거 확인 화면에 분리 표시합니다.",
+                    의미: "정책의 자격 기준·급여 기준·집행기관 권한이 어떤 법률 또는 조문에서 비롯되는지 설명하는 근거 데이터입니다.",
+                    결과해석: "법령은 직접 받을 수 있는 혜택이 아니므로 혜택 목록에서는 제외하고, 어떤 정책 판단의 근거인지 연결해 표시합니다.",
                   },
                   {
                     항목: "서버 상태",
@@ -1574,20 +1736,25 @@ export default function App() {
               }))}
             />
             <h3>승인된 법령 근거</h3>
+            <div className="info-box">
+              <strong>어디서 어떤 것의 근거가 되는가?</strong>
+              <p>
+                아래 법령은 국가법령정보센터 등 공식 출처에서 수집한 데이터입니다.
+                각 법령은 특정 혜택의 신청 버튼이 아니라, 주거·고용·생계·의료·교육 같은 정책 분야의
+                대상자 기준, 지원 범위, 행정기관 권한을 설명하는 근거로 사용됩니다.
+              </p>
+              <p className="muted">
+                사용자는 이 정보를 통해 “왜 내가 대상인지”, “어떤 기준 때문에 제외될 수 있는지”,
+                “상담·문의·이의제기 때 어떤 원문을 확인해야 하는지”를 알 수 있습니다.
+              </p>
+            </div>
             {legalReferences.length === 0 ? (
               <p className="muted">
                 승인된 법령 데이터가 없습니다. LAW_OPEN_API_OC를 설정한 뒤
                 수집하고 법령 후보를 승인하세요.
               </p>
             ) : (
-              <SimpleTable
-                rows={legalReferences.slice(0, 10).map((law) => ({
-                  법령명: law.name,
-                  출처: law.source?.label || "국가법령정보센터",
-                  설명: law.description,
-                  근거링크: linkCellFor(law),
-                }))}
-              />
+              <SimpleTable rows={legalBasisRows.slice(0, 10)} />
             )}
             <h3>검수 대기 정책 후보</h3>
             {policyAdmin.drafts.length === 0 ? (
