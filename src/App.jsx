@@ -654,7 +654,7 @@ export default function App() {
           {docResult && (
             <Section
               title="읽어낸 정보 확인하기"
-              subtitle={`parser=${docResult.parser} / file=${docResult.file?.name}`}
+              subtitle={`파일: ${docResult.file?.name}`}
             >
               <div className="metrics-row">
                 <Metric
