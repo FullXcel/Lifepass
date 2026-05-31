@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { enabledSources } from '../config/policySources.js';
 import { getServerConfig } from '../config/env.js';
-import { fetchWithTimeout, flattenRecords, looksLikeDataPortalDocPage, withApiParams } from './httpClient.js';
+import { fetchWithTimeout, flattenRecords, looksLikeDataPortalDocPage, redactUrlCredentials, withApiParams } from './httpClient.js';
 import { extractTextFromBuffer } from './textExtractors.js';
 import { normalizePolicyRecord } from './policyNormalizer.js';
 import { getCachedApiResponse, recordSnapshot, saveApiResponse, saveRawDocument, sha256, upsertDraft, rebuildSearchIndex, storeSummary } from './policyStore.js';
@@ -14,6 +14,14 @@ function envList(name, env = process.env) {
 function getByPath(obj, pathExpr = '') {
   if (!obj || !pathExpr) return undefined;
   return String(pathExpr).split('.').reduce((acc, key) => (acc && acc[key] !== undefined ? acc[key] : undefined), obj);
+}
+
+function apiKeyForSource(source, env = process.env) {
+  const keys = [source.apiKeyEnv, source.fallbackApiKeyEnv, ...(source.apiKeyEnvAliases || [])].filter(Boolean);
+  for (const key of keys) {
+    if (env[key]) return env[key];
+  }
+  return '';
 }
 
 function pick(record, keys = []) {
@@ -56,7 +64,7 @@ function pageUrls(source, baseUrl, env, config) {
   for (const query of queryValues) {
     if (!pagination) {
       urls.push(withApiParams(baseUrl, {
-        key: env[source.apiKeyEnv],
+        key: apiKeyForSource(source, env),
         authParam: source.authParam || 'serviceKey',
         defaultParams: source.defaultParams || {},
         params: query ? { [source.queryParam || 'query']: query } : {},
@@ -70,7 +78,7 @@ function pageUrls(source, baseUrl, env, config) {
         ...(query ? { [source.queryParam || 'query']: query } : {}),
       };
       urls.push(withApiParams(baseUrl, {
-        key: env[source.apiKeyEnv],
+        key: apiKeyForSource(source, env),
         authParam: source.authParam || 'serviceKey',
         defaultParams: source.defaultParams || {},
         params,
@@ -89,13 +97,14 @@ async function fetchApiRecords(url, config, options = {}) {
         records: recordsFromBody(cached.body, cached.contentType, cached.url || url),
         contentType: cached.contentType,
         url: cached.url || url,
+        redactedUrl: redactUrlCredentials(cached.url || url),
         cached: true,
       };
     }
   }
-  const { body, contentType, status } = await fetchWithTimeout(url, { timeoutMs: config.requestTimeoutMs });
-  await saveApiResponse(config.storeDir, cacheKey, { body, contentType, status, url });
-  return { records: recordsFromBody(body, contentType, url), contentType, url, cached: false };
+  const { body, contentType, status, redactedUrl } = await fetchWithTimeout(url, { timeoutMs: config.requestTimeoutMs });
+  await saveApiResponse(config.storeDir, cacheKey, { body, contentType, status, url: redactedUrl || redactUrlCredentials(url), redactedUrl });
+  return { records: recordsFromBody(body, contentType, url), contentType, url, redactedUrl: redactedUrl || redactUrlCredentials(url), cached: false };
 }
 
 function detailIds(records, source) {
@@ -104,6 +113,19 @@ function detailIds(records, source) {
     .map((record) => ({ record, id: pick(record, idKeys) }))
     .filter((x) => x.id)
     .map((x) => ({ ...x, id: String(x.id).trim() }));
+}
+
+
+function recordIdValues(record = {}, keys = []) {
+  return keys.map((key) => String(pick(record, [key]) || '').trim()).filter(Boolean);
+}
+
+function detailMatchesRequestedId(detailRecord = {}, detailConfig = {}, requestedId = '') {
+  const requested = String(requestedId || '').trim();
+  if (!requested) return true;
+  const candidates = recordIdValues(detailRecord, detailConfig.idKeys || []);
+  if (!candidates.length) return true;
+  return candidates.includes(requested);
 }
 
 async function enrichWithEndpoint(records, source, env, config, endpointEnv, detailConfig, targetKey) {
@@ -120,17 +142,22 @@ async function enrichWithEndpoint(records, source, env, config, endpointEnv, det
     const target = byObject.get(record) || record;
     try {
       const url = withApiParams(detailUrl, {
-        key: env[source.apiKeyEnv],
+        key: apiKeyForSource(source, env),
         authParam: source.authParam || 'serviceKey',
         defaultParams: source.defaultParams || {},
         params: { [detailConfig.param || 'id']: id },
       });
       const { records: detailRecords } = await fetchApiRecords(url, config, { forceRefresh: config.forceRefresh });
       const detailRecord = detailRecords[0] || {};
-      target[targetKey] = detailRecord;
-      target[`${targetKey}_url`] = url;
+      if (detailMatchesRequestedId(detailRecord, detailConfig, id)) {
+        target[targetKey] = detailRecord;
+        target[`${targetKey}_url`] = redactUrlCredentials(url);
+      } else {
+        target[`${targetKey}_warning`] = `상세조회 응답 ID 불일치: requested=${id}`;
+        target[`${targetKey}_url`] = redactUrlCredentials(url);
+      }
     } catch (error) {
-      target[`${targetKey}_error`] = error.message;
+      target[`${targetKey}_error`] = redactUrlCredentials(error.message);
     }
     byObject.set(record, target);
   }
@@ -152,7 +179,7 @@ async function collectOfficialApi(source, config, env = process.env) {
   if (looksLikeDataPortalDocPage(baseUrl)) {
     return { source, records: [], skipped: true, reason: `${source.apiBaseEnv} 값이 data.go.kr 소개 페이지입니다. 실제 API 호출 엔드포인트로 교체해야 합니다.` };
   }
-  if (source.apiKeyEnv && !env[source.apiKeyEnv]) {
+  if (source.apiKeyEnv && !apiKeyForSource(source, env)) {
     return { source, records: [], skipped: true, reason: `${source.apiKeyEnv} 인증키가 없어 수집을 건너뜁니다.` };
   }
 
@@ -162,16 +189,16 @@ async function collectOfficialApi(source, config, env = process.env) {
   for (const url of urls) {
     try {
       const result = await fetchApiRecords(url, config, { forceRefresh: config.forceRefresh });
-      fetchedUrls.push(result.url);
+      fetchedUrls.push(redactUrlCredentials(result.redactedUrl || result.url));
       records.push(...result.records);
       if (!result.records.length) break;
     } catch (error) {
-      records.push({ title: `${source.label} 수집 오류`, description: error.message, url, _lifepass_error: true });
+      records.push({ title: `${source.label} 수집 오류`, description: redactUrlCredentials(error.message), url: redactUrlCredentials(url), _lifepass_error: true });
       break;
     }
   }
   const enriched = await enrichRecords(records, source, env, config);
-  return { source: { ...source, lastFetchedUrl: fetchedUrls[0] || urls[0], fetchedUrls }, records: enriched, skipped: false };
+  return { source: { ...source, lastFetchedUrl: fetchedUrls[0] || redactUrlCredentials(urls[0]), fetchedUrls }, records: enriched, skipped: false };
 }
 
 async function collectAllowlistCrawler(source, config, env = process.env) {
@@ -188,7 +215,7 @@ async function collectAllowlistCrawler(source, config, env = process.env) {
       const text = extracted.text || '';
       records.push({ title: text.split(/\r?\n/).find(Boolean) || url, description: text, url, parser: extracted.parser });
     } catch (error) {
-      records.push({ title: `${source.label} 수집 오류`, description: error.message, url, _lifepass_error: true });
+      records.push({ title: `${source.label} 수집 오류`, description: redactUrlCredentials(error.message), url: redactUrlCredentials(url), _lifepass_error: true });
     }
   }
   return { source, records, skipped: false };
