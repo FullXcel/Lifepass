@@ -453,6 +453,20 @@ export default function App() {
 
   return (
     <div className="app-shell">
+
+      <nav className="tabs" aria-label="LifePass 화면 탭">
+        {TABS.map((tab, idx) => (
+          <button
+            key={tab}
+            type="button"
+            className={activeTab === idx ? "active" : ""}
+            onClick={() => setActiveTab(idx)}
+          >
+            {tab}
+          </button>
+        ))}
+      </nav>
+
       {activeTab === 0 && (
         <main className="landing-screen">
           <section className="landing-hero">
@@ -533,18 +547,6 @@ export default function App() {
           </section>
         </main>
       )}
-
-      <nav className="tabs">
-        {TABS.map((tab, idx) => (
-          <button
-            key={tab}
-            className={activeTab === idx ? "active" : ""}
-            onClick={() => setActiveTab(idx)}
-          >
-            {tab}
-          </button>
-        ))}
-      </nav>
 
       {activeTab === 1 && (
         <main className="tab-panel">
