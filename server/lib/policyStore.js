@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { buildSearchIndex } from './searchIndex.js';
+import { redactUrlCredentials } from './httpClient.js';
 
 const FILES = {
   policies: 'policies.json',
@@ -113,6 +114,54 @@ export async function loadSnapshots(storeDir) { return readJson(storeDir, 'snaps
 export async function loadSearchIndex(storeDir) { return readJson(storeDir, 'index'); }
 export async function loadApiCache(storeDir) { return readJson(storeDir, 'apiCache'); }
 
+
+function sanitizeValue(value) {
+  if (typeof value === 'string') return redactUrlCredentials(value);
+  if (Array.isArray(value)) return value.map(sanitizeValue);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).map(([key, child]) => [key, sanitizeValue(child)]));
+  }
+  return value;
+}
+
+function isUsableDraft(draft = {}) {
+  if (draft.status !== 'pending_review') return false;
+  if (!draft.benefit?.id || !draft.benefit?.name) return false;
+  if (draft.benefit?.domain === '법령근거') return true;
+  const raw = String(draft.rawText || draft.benefit?.description || '');
+  if (draft._lifepass_error || /수집 오류|INVALID_REQUEST_PARAMETER_ERROR|SERVICE ERROR|HTTP \d+/i.test(raw)) return false;
+  return true;
+}
+
+function draftToCollectedPolicy(draft = {}) {
+  return {
+    ...(draft.benefit || {}),
+    ingestion: draft.ingestion,
+    source: sanitizeValue(draft.source || {}),
+    collected_at: draft.ingestion?.collected_at || draft.updated_at || draft.created_at,
+    review_status: draft.status || 'pending_review',
+    change_type: draft.change_type || 'new',
+    pending_review: draft.status === 'pending_review',
+  };
+}
+
+export async function loadCollectedPolicies(storeDir, options = {}) {
+  const { includePendingDrafts = true } = options;
+  const [policies, drafts] = await Promise.all([loadPolicies(storeDir), loadDrafts(storeDir)]);
+  const byId = new Map();
+  for (const policy of policies) {
+    if (policy?.id) byId.set(policy.id, { ...sanitizeValue(policy), review_status: policy.review_status || 'approved', pending_review: false });
+  }
+  if (includePendingDrafts) {
+    for (const draft of drafts) {
+      if (!isUsableDraft(draft)) continue;
+      const candidate = draftToCollectedPolicy(draft);
+      if (candidate?.id && !byId.has(candidate.id)) byId.set(candidate.id, candidate);
+    }
+  }
+  return Array.from(byId.values());
+}
+
 export async function saveRawDocument(storeDir, sourceId, externalId, content, metadata = {}) {
   await ensureStore(storeDir);
   const safeSource = String(sourceId).replace(/[^a-z0-9_-]/gi, '_');
@@ -125,13 +174,13 @@ export async function saveRawDocument(storeDir, sourceId, externalId, content, m
        VALUES($1, $2, $3, $4::jsonb, NOW())
        ON CONFLICT (source_id, external_id)
        DO UPDATE SET content = EXCLUDED.content, metadata = EXCLUDED.metadata, updated_at = NOW()`,
-      [String(sourceId), String(externalId || safeId), String(content || ''), JSON.stringify(metadata || {})],
+      [String(sourceId), String(externalId || safeId), String(content || ''), JSON.stringify(sanitizeValue(metadata || {}))],
     );
     return { filePath: `postgres://lifepass_raw_documents/${safeSource}/${safeId}`, filename };
   }
   const filePath = path.join(storeDir, FILES.rawDir, filename);
   await fs.writeFile(filePath, String(content || ''));
-  await fs.writeFile(`${filePath}.meta.json`, JSON.stringify(metadata, null, 2));
+  await fs.writeFile(`${filePath}.meta.json`, JSON.stringify(sanitizeValue(metadata), null, 2));
   return { filePath, filename };
 }
 
@@ -151,7 +200,7 @@ export async function saveApiResponse(storeDir, cacheKey, response) {
     cache_key: cacheKey,
     fetched_at: new Date().toISOString(),
     status: response.status || 200,
-    url: response.url || '',
+    url: redactUrlCredentials(response.redactedUrl || response.url || ''),
     contentType: response.contentType || '',
     body: response.body,
   };
