@@ -3,7 +3,7 @@ import { URL } from 'node:url';
 import { getServerConfig, assertAdmin } from './config/env.js';
 import { OFFICIAL_POLICY_SOURCES, enabledSources } from './config/policySources.js';
 import { ingestPolicySources } from './lib/ingestionRunner.js';
-import { approveDraft, loadDrafts, loadPolicies, loadSearchIndex, rejectDraft, storeSummary } from './lib/policyStore.js';
+import { approveDraft, loadCollectedPolicies, loadDrafts, loadPolicies, loadSearchIndex, rejectDraft, storeSummary } from './lib/policyStore.js';
 import { searchPolicies } from './lib/searchIndex.js';
 
 const config = getServerConfig();
@@ -38,11 +38,17 @@ async function handle(req, res) {
       return send(res, 200, { sources: OFFICIAL_POLICY_SOURCES, enabled: enabledSources().map((s) => s.id) });
     }
     if (req.method === 'GET' && url.pathname === '/api/policies') {
-      return send(res, 200, { policies: await loadPolicies(config.storeDir) });
+      const approved = await loadPolicies(config.storeDir);
+      const collected = await loadCollectedPolicies(config.storeDir, { includePendingDrafts: url.searchParams.get('includeDrafts') !== 'false' });
+      return send(res, 200, {
+        policies: approved,
+        collected_policies: collected,
+        using_pending_drafts: collected.length > approved.length,
+      });
     }
     if (req.method === 'GET' && url.pathname === '/api/policies/search') {
       const q = url.searchParams.get('q') || '';
-      const policies = await loadPolicies(config.storeDir);
+      const policies = await loadCollectedPolicies(config.storeDir, { includePendingDrafts: true });
       const index = await loadSearchIndex(config.storeDir);
       return send(res, 200, { query: q, policies: searchPolicies(q, policies, index) });
     }
