@@ -173,6 +173,8 @@ function sanitizePublicUrl(value = '') {
 }
 
 function publicUrlFromRecord(record = {}) {
+  const lawUrl = publicLawUrlFromRecord(record);
+  if (lawUrl) return lawUrl;
   for (const key of PUBLIC_URL_KEYS) {
     const url = sanitizePublicUrl(record?.[key]);
     if (url) return url;
@@ -184,6 +186,29 @@ function publicUrlFromRecord(record = {}) {
 
 function normalizeLookupKey(value = '') {
   return String(value || '').replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+function cleanGenericLawTitle(value = '') {
+  const text = String(value || '').trim();
+  if (!text || /^LawSearch:/i.test(text) || /^target:/i.test(text)) return '';
+  return text;
+}
+
+function extractXmlTag(block = '', tag = '') {
+  const escaped = tag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = String(block || '').match(new RegExp(`<${escaped}>([\\s\\S]*?)<\\/${escaped}>`, 'i'));
+  return (match?.[1] || '').replace(/<!\[CDATA\[|\]\]>/g, '').trim();
+}
+
+function lawNameFromRecord(record = {}, fallback = '') {
+  return cleanGenericLawTitle(
+    record?.법령명한글 || record?.법령명 || record?.lawNm || record?.lsNm || extractXmlTag(stringifyRecordValue(record), '법령명한글') || fallback,
+  );
+}
+
+function publicLawUrlFromRecord(record = {}, fallback = '') {
+  const name = lawNameFromRecord(record, fallback);
+  return name ? `https://www.law.go.kr/법령/${encodeURIComponent(name)}` : '';
 }
 
 function buildPublicLinkLookup(apiCache = []) {
@@ -213,13 +238,96 @@ const LEGAL_SCOPE_RULES = [
   { domain: '금융', label: '서민금융·채무조정·보증·이자 지원 정책', pattern: /서민금융|채무|신용|보증|이자|대출|금융/ },
 ];
 
+const LEGAL_ACT_ROLE_RULES = [
+  {
+    pattern: /주거급여/,
+    domains: ['주거', '생활지원'],
+    target: '주거급여·임차료·수선유지급여 등 주거비 지원 정책',
+    role: '주거급여 신청 대상, 임차료·수선유지급여 같은 지원 종류, 소득인정액과 주거 형태에 따른 지급 기준의 근거입니다.',
+    userValue: '월세·전세·자가 여부나 소득 기준 때문에 주거급여 대상이 되는지 확인할 때 원문 기준을 대조할 수 있습니다.',
+  },
+  {
+    pattern: /국민기초생활|기초생활보장/,
+    domains: ['생활지원', '주거', '의료', '교육'],
+    target: '생계급여·의료급여·주거급여·교육급여 등 기초생활 보장 정책',
+    role: '수급권자 범위, 급여 종류, 소득인정액·부양의무자 등 기초생활보장 급여 판단 기준의 근거입니다.',
+    userValue: '내 소득·재산·가구 상황 때문에 기초생활 관련 급여 대상 또는 제외 대상이 되는 이유를 확인할 수 있습니다.',
+  },
+  {
+    pattern: /긴급복지/,
+    domains: ['생활지원', '의료', '주거'],
+    target: '갑작스러운 위기 상황의 생계·의료·주거 긴급지원 정책',
+    role: '실직, 질병, 주거 상실 등 위기사유 인정 범위와 긴급지원의 종류·절차를 정하는 근거입니다.',
+    userValue: '위기 사유를 왜 예/아니오로 먼저 확인하는지, 어떤 상황이 긴급지원 사유가 되는지 원문으로 확인할 수 있습니다.',
+  },
+  {
+    pattern: /고용보험/,
+    domains: ['고용'],
+    target: '실업급여·고용안정·직업능력개발 등 고용보험 기반 정책',
+    role: '고용보험 가입, 실업급여 수급, 직업훈련·고용안정 지원의 대상과 급여 조건을 정하는 근거입니다.',
+    userValue: '퇴사·실업급여 잔여일·고용보험 가입 여부가 추천 결과에 어떤 영향을 주는지 확인할 수 있습니다.',
+  },
+  {
+    pattern: /국민취업지원|구직자 취업촉진/,
+    domains: ['고용', '청년'],
+    target: '국민취업지원제도·구직촉진수당·취업지원서비스 정책',
+    role: '구직자 유형, 소득·재산 요건, 취업지원서비스와 구직촉진수당 지급 범위를 정하는 근거입니다.',
+    userValue: '취업 상태·소득·재산 기준 때문에 국민취업지원제도 대상인지 확인할 때 쓸 수 있습니다.',
+  },
+  {
+    pattern: /청년|위기아동|자립준비|청소년/,
+    domains: ['청년', '생활지원'],
+    target: '청년·청소년·자립준비청년 생활·주거·취업 지원 정책',
+    role: '청년 또는 위기아동·청소년의 지원 대상 범위와 국가·지자체의 지원 책임을 설명하는 근거입니다.',
+    userValue: '나이·가구상황·자립 여부가 청년 지원 정책 추천에 왜 반영되는지 확인할 수 있습니다.',
+  },
+  {
+    pattern: /노인복지/,
+    domains: ['생활지원', '의료'],
+    target: '노인 돌봄·건강·생활안정 지원 정책',
+    role: '노인 복지서비스, 건강·돌봄·생활안정 지원의 대상과 국가·지자체 책무를 설명하는 근거입니다.',
+    userValue: '나이 기준이나 노인가구 여부에 따라 지원 대상이 달라지는 이유를 확인할 수 있습니다.',
+  },
+  {
+    pattern: /장애인/,
+    domains: ['생활지원', '의료', '교육', '고용'],
+    target: '장애인 생활·의료·교육·고용 지원 정책',
+    role: '장애인 등록, 복지서비스, 교육·고용·의료 지원의 대상과 서비스 범위를 설명하는 근거입니다.',
+    userValue: '장애 여부 또는 장애인 가구 조건이 정책 추천에 쓰이는 이유와 확인해야 할 증빙을 파악할 수 있습니다.',
+  },
+  {
+    pattern: /교육|유아교육|영유아보육|초ㆍ중등교육|고등교육|학자금/,
+    domains: ['교육', '청년'],
+    target: '교육비·보육료·장학금·학자금 지원 정책',
+    role: '교육·보육 지원의 대상, 비용 지원 범위, 학교·보육기관 관련 행정 기준을 정하는 근거입니다.',
+    userValue: '학생 여부, 자녀 여부, 학자금·교육비 조건이 추천 결과에 왜 연결되는지 확인할 수 있습니다.',
+  },
+  {
+    pattern: /사회복지사업|사회보장|사회복지/,
+    domains: ['생활지원'],
+    target: '사회복지서비스 제공, 복지시설, 지자체 복지사업 전반',
+    role: '사회복지서비스 제공 체계, 복지시설 운영, 국가·지자체의 복지사업 집행 권한을 설명하는 포괄 근거입니다.',
+    userValue: '개별 지원금의 직접 지급 기준보다는, 복지서비스가 어떤 행정 체계에서 운영되는지 확인할 때 필요합니다.',
+  },
+];
+
 function inferLegalReferenceDisplayInfo(policy = {}) {
-  const text = [policy.name, policy.description, policy.target, policy.source?.label].filter(Boolean).join('\n');
+  const lawName = lawNameFromRecord(policy, policy.name) || cleanGenericLawTitle(policy.name) || '법령';
+  const text = [lawName, policy.description, policy.target, policy.source?.label].filter(Boolean).join('\n');
+  const specific = LEGAL_ACT_ROLE_RULES.find((rule) => rule.pattern.test(text));
+  if (specific) {
+    return {
+      related_policy_domains: policy.related_policy_domains?.length ? policy.related_policy_domains : specific.domains,
+      legal_basis_summary: policy.legal_basis_summary || `${lawName}은 ${specific.target}의 판단 근거입니다. 직접 지급되는 혜택으로 계산하지 않고 자격·지원 기준 설명과 원문 확인용으로 분리합니다.`,
+      legal_basis_role: policy.legal_basis_role || specific.role,
+      user_value: policy.user_value || specific.userValue,
+    };
+  }
   const matched = LEGAL_SCOPE_RULES.filter((rule) => rule.pattern.test(text));
   const scope = matched.length ? matched.map((rule) => rule.label).join(', ') : '복지·고용·주거 등 관련 정책';
   return {
     related_policy_domains: policy.related_policy_domains?.length ? policy.related_policy_domains : matched.map((rule) => rule.domain),
-    legal_basis_summary: policy.legal_basis_summary || `${policy.name || '법령'}은 ${scope}와 연결되는 상위 근거입니다. 직접 지급되는 혜택으로 계산하지 않고 정책 판정 설명과 원문 확인용으로 분리합니다.`,
+    legal_basis_summary: policy.legal_basis_summary || `${lawName}은 ${scope}와 연결되는 상위 근거입니다. 직접 지급되는 혜택으로 계산하지 않고 정책 판정 설명과 원문 확인용으로 분리합니다.`,
     legal_basis_role: policy.legal_basis_role || `${scope}의 대상자 범위, 지원 기준, 급여·서비스 범위, 행정기관 집행 권한을 설명하는 법적 근거입니다.`,
     user_value: policy.user_value || '사용자는 이 근거를 통해 해당 혜택이 왜 존재하는지, 본인이 어떤 자격 기준 때문에 대상 또는 제외 대상이 되는지, 상담·문의·이의제기 때 어떤 원문을 확인해야 하는지 알 수 있습니다.',
   };
