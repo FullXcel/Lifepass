@@ -64,6 +64,156 @@ function Metric({ label, value, note }) {
   );
 }
 
+const SECRET_QUERY_PARAMS = new Set([
+  "servicekey",
+  "oc",
+  "authkey",
+  "openapivlak",
+  "apikey",
+  "key",
+]);
+const URL_PATTERN = /https?:\/\/[^\s<>)\]]+/gi;
+
+function safeExternalUrl(value) {
+  try {
+    const url = new URL(String(value || ""));
+    if (!/^https?:$/.test(url.protocol)) return "";
+    for (const key of [...url.searchParams.keys()]) {
+      if (SECRET_QUERY_PARAMS.has(key.toLowerCase())) {
+        url.searchParams.delete(key);
+      }
+    }
+    return url.toString();
+  } catch {
+    return "";
+  }
+}
+
+function SafeLink({ href, children = "링크 열기" }) {
+  const safeHref = safeExternalUrl(href);
+  if (!safeHref) return <span>{children}</span>;
+  return (
+    <a className="inline-link" href={safeHref} target="_blank" rel="noreferrer">
+      {children}
+    </a>
+  );
+}
+
+function LinkText({ text }) {
+  const raw = String(text ?? "");
+  const matches = [...raw.matchAll(URL_PATTERN)];
+  if (!matches.length) return raw;
+  if (matches.length === 1 && matches[0][0] === raw.trim()) {
+    return <SafeLink href={matches[0][0]} />;
+  }
+  const parts = [];
+  let cursor = 0;
+  matches.forEach((match, idx) => {
+    const url = match[0];
+    const start = match.index ?? 0;
+    if (start > cursor) parts.push(raw.slice(cursor, start));
+    parts.push(
+      <SafeLink key={`${url}-${idx}`} href={url}>
+        링크 열기
+      </SafeLink>,
+    );
+    cursor = start + url.length;
+  });
+  if (cursor < raw.length) parts.push(raw.slice(cursor));
+  return parts;
+}
+
+function CellValue({ value }) {
+  if (Array.isArray(value)) {
+    if (!value.length) return "";
+    return value.map((item, idx) => (
+      <React.Fragment key={idx}>
+        {idx > 0 ? ", " : ""}
+        <CellValue value={item} />
+      </React.Fragment>
+    ));
+  }
+  if (value && typeof value === "object") {
+    if (value.href || value.url) {
+      return <SafeLink href={value.href || value.url}>{value.label || "링크 열기"}</SafeLink>;
+    }
+    return JSON.stringify(value);
+  }
+  if (typeof value === "string") return <LinkText text={value} />;
+  return String(value ?? "");
+}
+
+function sourceLabelOf(item, fallback = "출처 미상") {
+  return item?.source?.label || item?.source_label || fallback;
+}
+
+function importanceText(value) {
+  const score = Number(value || 0);
+  if (score >= 90) return `${score}점 · 매우 높음`;
+  if (score >= 70) return `${score}점 · 높음`;
+  if (score >= 50) return `${score}점 · 보통`;
+  return `${score}점 · 참고`;
+}
+
+const CONFIRM_PRIORITY_GUIDE = [
+  { 점수대: "0~44점", 상태: "안정", 의미: "소득 공백·주거비 부담·혜택 상실 위험이 낮아 일반 확인으로 충분합니다." },
+  { 점수대: "45~59점", 상태: "주의", 의미: "일부 위험 신호가 있어 입력 정보와 서류를 다시 확인하는 것이 좋습니다." },
+  { 점수대: "60~69점", 상태: "주의/확인 권장", 의미: "상담사 또는 운영자 추가 확인을 권장하는 구간입니다." },
+  { 점수대: "70~100점", 상태: "긴급", 의미: "복지절벽·실업급여 종료·소득 공백 등 즉시 확인할 신호가 큽니다." },
+];
+
+const AUDIT_SCORE_GUIDE = [
+  { 점수대: "85~100점", 상태: "확인 완료", 의미: "자동 판정 근거가 비교적 충분하며 추가 확인 항목이 적습니다." },
+  { 점수대: "73~84점", 상태: "추가 확인 필요", 의미: "일부 통제항목이 미흡하므로 근거·중복수급·개인정보 항목을 확인해야 합니다." },
+  { 점수대: "72점 이하", 상태: "강한 추가 확인 필요", 의미: "여러 통제항목에서 확인 필요가 발생한 상태입니다." },
+];
+
+const POLICY_PRIORITY_GUIDE = [
+  { 점수대: "90~100점", 표시: "매우 높음", 의미: "운영자가 핵심 정책으로 보거나 원천 데이터에서 높은 우선값을 가진 정책입니다. 금액 조건이 비슷하면 먼저 검토할 후보입니다." },
+  { 점수대: "70~89점", 표시: "높음", 의미: "추천·정렬에서 우선적으로 고려되는 정책입니다. 단, 실제 수급 가능 여부는 자격 조건 충족 여부가 먼저입니다." },
+  { 점수대: "50~69점", 표시: "보통", 의미: "일반적인 검토 대상입니다. 최적 조합에서는 월 환산효과와 중복수급 충돌 여부가 더 크게 작용합니다." },
+  { 점수대: "0~49점", 표시: "참고", 의미: "보조 참고 정책입니다. 조건이 맞더라도 다른 정책보다 추천 순위가 뒤로 밀릴 수 있습니다." },
+];
+
+const POLICY_IMPORTANCE_BASIS = [
+  { 기준: "원천 정책의 중요도 값", 설명: "서버에서 수집·정규화된 정책 데이터 또는 데모 정책에 저장된 중요도 숫자를 기본값으로 사용합니다." },
+  { 기준: "운영자 검수/소스 설정", 설명: "정책 수집 소스별 중요도와 운영자가 승인한 정책의 우선값이 반영될 수 있습니다." },
+  { 기준: "최적 조합에서의 보조 가중치", 설명: "최적 조합 계산은 월 환산효과를 크게 보고, 중요도는 같은 수준의 혜택을 정렬하거나 비교할 때 보조 점수로 사용합니다." },
+  { 기준: "자격 판정과의 구분", 설명: "중요도는 정책 자체의 추천 우선값입니다. 사용자가 실제로 받을 수 있는지는 나이, 소득, 지역, 가구원 수 같은 조건 판정으로 따로 결정됩니다." },
+];
+
+function ExplanationDetails({ children, title = "상세 설명", summary = "자세히 보기" }) {
+  return (
+    <details className="explain-details">
+      <summary>{summary}</summary>
+      <div className="explain-content">
+        <h3>{title}</h3>
+        {children}
+      </div>
+    </details>
+  );
+}
+
+function ImportanceDetails({ score }) {
+  return (
+    <ExplanationDetails title="중요도의 의미" summary="중요도의 의미: 자세히 보기">
+      <p>
+        중요도는 해당 정책을 추천 목록과 최적 조합에서 얼마나 우선적으로 검토할지
+        나타내는 내부 우선순위 점수입니다. 현재 정책의 중요도는 <b>{importanceText(score)}</b>입니다.
+      </p>
+      <p>
+        이 값은 수급 확정 점수가 아니라 정책 데이터에 저장된 중요도 값을 국문으로 바꿔
+        보여주는 값입니다. 최종 가능 여부는 나이, 지역, 소득, 가구원 수, 월세, 중복수급 제한 같은
+        조건 판정 결과로 따로 결정됩니다.
+      </p>
+      <h4>무엇을 기준으로 측정하나</h4>
+      <SimpleTable rows={POLICY_IMPORTANCE_BASIS} />
+      <h4>점수대별 의미</h4>
+      <SimpleTable rows={POLICY_PRIORITY_GUIDE} />
+    </ExplanationDetails>
+  );
+}
+
 function Section({ title, subtitle, children, right }) {
   return (
     <section className="section-card">
@@ -98,9 +248,7 @@ function SimpleTable({ rows, limit = 12 }) {
             <tr key={idx}>
               {columns.map((c) => (
                 <td key={c}>
-                  {Array.isArray(row[c])
-                    ? row[c].join(", ")
-                    : String(row[c] ?? "")}
+                  <CellValue value={row[c]} />
                 </td>
               ))}
             </tr>
@@ -288,6 +436,22 @@ export default function App() {
     else localStorage.removeItem("lifepassAdminToken");
   };
   const derived = useDerived(profile, benefits);
+  const policySourceBreakdown = useMemo(() => {
+    if (usingFallbackPolicies) return [{ 출처: "데모 정책", 포함정책: benefits.length }];
+    const counts = new Map();
+    activeExternalPolicies.forEach((policy) => {
+      const label = sourceLabelOf(policy, "출처 미상");
+      counts.set(label, (counts.get(label) || 0) + 1);
+    });
+    return [...counts.entries()]
+      .map(([출처, 포함정책]) => ({ 출처, 포함정책 }))
+      .sort((a, b) => b.포함정책 - a.포함정책);
+  }, [activeExternalPolicies, benefits.length, usingFallbackPolicies]);
+  const policySourceValue = usingFallbackPolicies
+    ? "데모 정책"
+    : policySourceBreakdown.length <= 2
+      ? policySourceBreakdown.map((s) => s.출처).join(", ")
+      : `${policySourceBreakdown.slice(0, 2).map((s) => s.출처).join(", ")} 외 ${policySourceBreakdown.length - 2}곳`;
 
   const loadPolicyAdmin = async () => {
     setPolicyAdminLoading(true);
@@ -448,11 +612,14 @@ export default function App() {
     : [];
   const eligibleRows = derived.evaluations.map((ev) => ({
     혜택: ev.name,
+    출처: sourceLabelOf(ev, usingFallbackPolicies ? "데모 정책" : "출처 미상"),
     분야: ev.domain,
     판정: ev.eligible ? "가능" : "불가",
     월환산: money(ev.monthly_value),
+    중요도: importanceText(ev.priority),
     충족조건: ev.matched.slice(0, 3).join(", "),
     미충족조건: ev.unmet.slice(0, 3).join(", "),
+    안내링크: ev.apply_url,
   }));
   const timelineRows = derived.timeline.map((r) => ({
     시점: r.label,
@@ -571,6 +738,40 @@ export default function App() {
               note={derived.agent.priority_grade}
             />
           </section>
+          <ExplanationDetails>
+            <SimpleTable
+              rows={[
+                {
+                  항목: "매칭 정책",
+                  현재값: `${benefits.length}개`,
+                  의미: "현재 사용자 조건과 비교하는 정책 수입니다.",
+                  결과해석: usingFallbackPolicies
+                    ? "공식 수집 정책이 없어 내장 데모 정책으로 판정 중입니다."
+                    : "공식 API 또는 수집 후보에서 가져온 정책으로 판정 중입니다.",
+                },
+                {
+                  항목: "법령 근거",
+                  현재값: `${legalReferences.length}건`,
+                  의미: "혜택 판정의 배경 설명에 참고할 수 있는 승인된 법령 데이터 수입니다.",
+                  결과해석: "법령 근거는 직접 혜택으로 추천하지 않고 정책 판단 근거로 분리합니다.",
+                },
+                {
+                  항목: "최적 조합",
+                  현재값: `${derived.plan.selected.length}개`,
+                  의미: "현재 받을 가능성이 있는 혜택 중 중복·충돌을 제거하고 남긴 추천 조합입니다.",
+                  결과해석: `월 환산효과는 ${money(derived.plan.total_monthly_value)}입니다.`,
+                },
+                {
+                  항목: "확인 우선도",
+                  현재값: `${derived.agent.priority_score}점`,
+                  의미: "소득 공백, 실업급여 종료, 주거비 부담, 혜택 상실 가능성 등을 합산한 추가 확인 필요도입니다.",
+                  결과해석: derived.agent.priority_grade,
+                },
+              ]}
+            />
+            <h4>확인 우선도 점수대</h4>
+            <SimpleTable rows={CONFIRM_PRIORITY_GUIDE} />
+          </ExplanationDetails>
         </main>
       )}
 
@@ -678,6 +879,36 @@ export default function App() {
                   }
                 />
               </div>
+              <ExplanationDetails>
+                <SimpleTable
+                  rows={[
+                    {
+                      항목: "추출 근거",
+                      현재값: `${docResult.evidence?.length || 0}개`,
+                      의미: "문서나 입력문에서 실제 프로필 필드로 변환한 근거 개수입니다.",
+                      결과해석: "개수가 많을수록 자동으로 채운 항목이 많지만, 최종 신청 전에는 사용자가 직접 확인해야 합니다.",
+                    },
+                    {
+                      항목: "검증 이슈",
+                      현재값: `${docResult.validation?.issues?.length || 0}개`,
+                      의미: "나이·소득·월세 등 입력값이 비어 있거나 모순될 때 발생하는 확인 항목입니다.",
+                      결과해석: "0개가 아니면 아래 확인·수정란에서 값을 보완하는 것이 좋습니다.",
+                    },
+                    {
+                      항목: "원문 길이",
+                      현재값: `${docResult.text?.length || 0}자`,
+                      의미: "파일에서 읽어낸 텍스트 양입니다.",
+                      결과해석: "너무 짧으면 PDF 스캔본·이미지 품질 문제로 일부 항목이 누락됐을 수 있습니다.",
+                    },
+                    {
+                      항목: "문서 유형",
+                      현재값: docResult.documentKind === "policy_notice" ? "정책 공고" : "신청자 문서",
+                      의미: "정책 기준을 담은 문서인지, 사용자의 조건을 담은 문서인지 구분한 결과입니다.",
+                      결과해석: "정책 공고는 프로필을 자동 변경하지 않고 조건 추출 참고용으로만 사용합니다.",
+                    },
+                  ]}
+                />
+              </ExplanationDetails>
               {!!docResult.parserWarnings?.length && (
                 <div className="warn-box">
                   {docResult.parserWarnings.map((w, i) => (
@@ -833,7 +1064,7 @@ export default function App() {
             <div className="metrics-row">
               <Metric
                 label="정책 출처"
-                value={usingFallbackPolicies ? "데모 정책" : "수집 정책"}
+                value={policySourceValue || "출처 미상"}
                 note={
                   usingFallbackPolicies
                     ? "수집 정책 후보도 없을 때만 사용"
@@ -854,8 +1085,53 @@ export default function App() {
                 label="월 환산효과"
                 value={money(derived.plan.total_monthly_value)}
               />
-            
+              <Metric
+                label="혜택 간 충돌"
+                value={derived.portfolio.conflict_free ? "없음" : "있음"}
+              />
             </div>
+            <ExplanationDetails>
+              <SimpleTable
+                rows={[
+                  {
+                    항목: "정책 출처",
+                    현재값: policySourceValue || "출처 미상",
+                    의미: "현재 판정에 사용한 정책 데이터의 출처입니다.",
+                    결과해석: usingFallbackPolicies
+                      ? "공식 API 수집 정책이 없어 데모 정책으로 표시됩니다."
+                      : "여러 사이트에서 수집되면 출처명이 여러 개로 집계됩니다.",
+                  },
+                  {
+                    항목: "가능 혜택",
+                    현재값: `${derived.evaluations.filter((e) => e.eligible).length}개`,
+                    의미: "현재 입력 정보가 정책 조건을 통과한 혜택 수입니다.",
+                    결과해석: "실제 지급 확정이 아니라 신청 가능성이 높은 후보입니다.",
+                  },
+                  {
+                    항목: "최적 선택",
+                    현재값: `${derived.plan.selected.length}개`,
+                    의미: "가능 혜택 중 중복 수급 제한과 충돌을 고려해 우선 추천한 조합입니다.",
+                    결과해석: "월 환산효과와 중요도를 함께 보되, 금액 효과가 더 크게 작용합니다.",
+                  },
+                  {
+                    항목: "월 환산효과",
+                    현재값: money(derived.plan.total_monthly_value),
+                    의미: "선택된 혜택을 월 단위 금액으로 환산해 합산한 값입니다.",
+                    결과해석: "일시금은 월평균처럼 단순 환산된 값일 수 있어 실제 지급 주기와 다를 수 있습니다.",
+                  },
+                  {
+                    항목: "혜택 간 충돌",
+                    현재값: derived.portfolio.conflict_free ? "없음" : "있음",
+                    의미: "동일 성격 혜택의 중복수급 제한이나 직접 충돌 조건이 있는지 본 결과입니다.",
+                    결과해석: "없음이면 현재 선택 조합 안에서는 충돌을 찾지 못했다는 뜻입니다.",
+                  },
+                ]}
+              />
+              <h4>출처별 포함 정책 수</h4>
+              <SimpleTable rows={policySourceBreakdown} />
+              <h4>중요도 점수대</h4>
+              <SimpleTable rows={POLICY_PRIORITY_GUIDE} />
+            </ExplanationDetails>
             <div className="selected-list">
               {derived.plan.selected.map((b) => (
                 <article key={b.benefit_id} className="benefit-card">
@@ -864,10 +1140,15 @@ export default function App() {
                     <strong>{b.name}</strong>
                   </div>
                   <p>{b.description}</p>
-                  <p>
-                    <b>{money(b.monthly_value)}</b> · {b.domain} · priority{" "}
-                    {b.priority}
+                  <p className="benefit-meta">
+                    <b>{money(b.monthly_value)}</b> · {b.domain} · 중요도 {importanceText(b.priority)} · 출처 {sourceLabelOf(b, usingFallbackPolicies ? "데모 정책" : "출처 미상")}
                   </p>
+                  <ImportanceDetails score={b.priority} />
+                  {b.apply_url && (
+                    <p className="link-line">
+                      신청·안내 <SafeLink href={b.apply_url}>링크 열기</SafeLink>
+                    </p>
+                  )}
                 </article>
               ))}
             </div>
@@ -914,6 +1195,30 @@ export default function App() {
               />
               <Metric label="이벤트" value={`${derived.events.length}개`} />
             </div>
+            <ExplanationDetails>
+              <SimpleTable
+                rows={[
+                  {
+                    항목: "현재 순효과",
+                    현재값: money(derived.timeline[0]?.net_effect || 0),
+                    의미: "현재 월소득과 선택 혜택 월환산효과에서 월세·대출상환액을 뺀 추정 여유액입니다.",
+                    결과해석: "생활 여력을 빠르게 비교하기 위한 시뮬레이션 값입니다.",
+                  },
+                  {
+                    항목: "3개월 후 순효과",
+                    현재값: money(derived.timeline.find((x) => x.month === 3)?.net_effect || 0),
+                    의미: "예상 소득 발생·실업급여 종료 등 3개월 뒤 조건 변화를 반영한 추정값입니다.",
+                    결과해석: "현재보다 낮아지면 복지절벽 또는 소득 공백 위험을 확인해야 합니다.",
+                  },
+                  {
+                    항목: "이벤트",
+                    현재값: `${derived.events.length}개`,
+                    의미: "앞으로 신규 가능, 상실 위험, 재점검 필요 등으로 표시한 변화 알림 수입니다.",
+                    결과해석: "이벤트가 많을수록 시간에 따른 자격 변동을 더 자주 확인해야 합니다.",
+                  },
+                ]}
+              />
+            </ExplanationDetails>
             <h3>시간축 변화</h3>
             <SimpleTable rows={timelineRows} />
             <h3>소득별 복지절벽</h3>
@@ -952,6 +1257,25 @@ export default function App() {
                 value={`${derived.notifications.length}개`}
               />
             </div>
+            <ExplanationDetails>
+              <SimpleTable
+                rows={[
+                  
+                  {
+                    항목: "준비할 일",
+                    현재값: `${derived.workflow.tasks.length}개`,
+                    의미: "서류 준비, 신청, 결과 확인처럼 사용자가 처리해야 할 작업 수입니다.",
+                    결과해석: "개수가 많으면 우선순위가 높은 혜택부터 처리하는 것이 좋습니다.",
+                  },
+                  {
+                    항목: "알림 예정",
+                    현재값: `${derived.notifications.length}개`,
+                    의미: "마감일이나 재확인 시점에 맞춰 알려줘야 할 일정 수입니다.",
+                    결과해석: "실제 알림 기능과 연결하려면 캘린더·푸시 알림 연동이 추가로 필요합니다.",
+                  },
+                ]}
+              />
+            </ExplanationDetails>
             <h3>먼저 할 일</h3>
             <SimpleTable
               rows={derived.workflow.tasks.map((t) => ({
@@ -967,7 +1291,7 @@ export default function App() {
                 <strong>{benefit}</strong>
                 <ul>
                   {items.map((item, idx) => (
-                    <li key={idx}>{item}</li>
+                    <li key={idx}><LinkText text={item} /></li>
                   ))}
                 </ul>
               </div>
@@ -991,6 +1315,32 @@ export default function App() {
                 }
               />
             </div>
+            <ExplanationDetails>
+              <SimpleTable
+                rows={[
+                  {
+                    항목: "확인 우선도",
+                    현재값: `${derived.agent.priority_score}점`,
+                    의미: "현재 상황에서 추가 확인이 얼마나 필요한지 나타내는 점수입니다.",
+                    결과해석: derived.agent.priority_grade,
+                  },
+                  {
+                    항목: "상태",
+                    현재값: derived.agent.priority_grade,
+                    의미: "확인 우선도 점수를 안정·주의·긴급으로 번역한 상태입니다.",
+                    결과해석: "주의 이상이면 입력값, 원문 공고, 제출 서류를 다시 확인하는 것이 좋습니다.",
+                  },
+                  {
+                    항목: "상담사 확인",
+                    현재값: derived.agentWorkflow.human_review_required ? "권장" : "선택",
+                    의미: "자동 판정만으로 부족할 수 있어 사람이 검토해야 하는지 나타냅니다.",
+                    결과해석: "권장이면 법령·최신 공고·중복수급 여부를 추가 확인하세요.",
+                  },
+                ]}
+              />
+              <h4>확인 우선도 점수대</h4>
+              <SimpleTable rows={CONFIRM_PRIORITY_GUIDE} />
+            </ExplanationDetails>
             <ul className="clean-list">
               {agentReasons.map((r, idx) => (
                 <li key={idx}>{r}</li>
@@ -1013,7 +1363,7 @@ export default function App() {
           >
             <div className="metrics-row">
               <Metric
-                label="점검 점수"
+                label="판정점수"
                 value={`${derived.audit.audit_score}점`}
               />
               <Metric label="상태" value={derived.audit.status} />
@@ -1022,6 +1372,32 @@ export default function App() {
                 value={`${derived.validationWarnings.length}개`}
               />
             </div>
+            <ExplanationDetails>
+              <SimpleTable
+                rows={[
+                  {
+                    항목: "판정점수",
+                    현재값: `${derived.audit.audit_score}점`,
+                    의미: "조건 확인, 중복 신청 가능성, 상담사 확인 필요 여부, 개인정보 최소 사용, 판정 근거 제공 상태를 종합한 신뢰 점수입니다.",
+                    결과해석: derived.audit.status,
+                  },
+                  {
+                    항목: "상태",
+                    현재값: derived.audit.status,
+                    의미: "판정점수를 사람이 이해하기 쉽게 바꾼 결과입니다.",
+                    결과해석: "추가 확인 필요이면 자동 판정 결과를 그대로 확정하지 말고 근거를 확인하세요.",
+                  },
+                  {
+                    항목: "검증 경고",
+                    현재값: `${derived.validationWarnings.length}개`,
+                    의미: "프로필 입력값에 누락·비정상 값이 있을 때 표시되는 경고 수입니다.",
+                    결과해석: "0개가 아니면 내 정보 불러오기 탭에서 값을 보완하세요.",
+                  },
+                ]}
+              />
+              <h4>판정점수 점수대</h4>
+              <SimpleTable rows={AUDIT_SCORE_GUIDE} />
+            </ExplanationDetails>
             <h3>안전 확인 항목</h3>
             <SimpleTable
               rows={derived.audit.controls.map((c) => ({
@@ -1070,6 +1446,44 @@ export default function App() {
                 }
               />
             </div>
+            <ExplanationDetails>
+              <SimpleTable
+                rows={[
+                  {
+                    항목: "수집 소스",
+                    현재값: `${policyAdmin.sources.length}개`,
+                    의미: "서버에 등록된 공식 API·보조 수집 출처 전체 개수입니다.",
+                    결과해석: `${policyAdmin.enabled.length}개가 현재 활성화되어 있습니다.`,
+                  },
+                  {
+                    항목: "검수 대기",
+                    현재값: `${policyAdmin.drafts.length}건`,
+                    의미: "수집됐지만 운영자가 승인 또는 반려하지 않은 정책 후보 수입니다.",
+                    결과해석: "후보 정책은 실제 운영 전 원문과 조건을 검수해야 합니다.",
+                  },
+                  {
+                    항목: "승인 정책",
+                    현재값: `${policyAdmin.policies.length}건`,
+                    의미: "검수 후 실제 판정 카탈로그에 들어간 정책 수입니다.",
+                    결과해석: "승인 정책이 있으면 데모 정책보다 우선 사용됩니다.",
+                  },
+                  {
+                    항목: "법령 근거",
+                    현재값: `${legalReferences.length}건`,
+                    의미: "정책 추천이 아니라 판단 근거 보강용으로 승인된 법령 데이터입니다.",
+                    결과해석: "법령은 혜택 목록에서 제외하고 근거 확인 화면에 분리 표시합니다.",
+                  },
+                  {
+                    항목: "서버 상태",
+                    현재값: policyAdminMessage && policyAdminMessage.includes("연결할 수 없습니다") ? "확인 필요" : "연결 시도",
+                    의미: "프론트엔드가 백엔드 정책 수집 API에 접근할 수 있는지의 상태입니다.",
+                    결과해석: "확인 필요이면 npm run server 실행 여부와 .env 설정을 확인하세요.",
+                  },
+                ]}
+              />
+              <h4>중요도 점수대</h4>
+              <SimpleTable rows={POLICY_PRIORITY_GUIDE} />
+            </ExplanationDetails>
             <div className="admin-token-row">
               <label>
                 <span>관리자 토큰</span>
@@ -1119,7 +1533,7 @@ export default function App() {
                   s.strategy === "official_api"
                     ? "공식 API"
                     : "허용 URL 보조 수집",
-                우선순위: s.priority,
+                중요도: importanceText(s.priority),
                 상태: policyAdmin.enabled.includes(s.id) ? "활성" : "비활성",
                 설명: s.note,
               }))}
@@ -1136,6 +1550,7 @@ export default function App() {
                   법령명: law.name,
                   출처: law.source?.label || "국가법령정보센터",
                   설명: law.description,
+                  근거링크: law.apply_url || law.source?.original_url,
                 }))}
               />
             )}
@@ -1148,13 +1563,17 @@ export default function App() {
             ) : (
               <div className="trace-list">
                 {policyAdmin.drafts.slice(0, 6).map((draft) => (
-                  <details key={draft.id} open>
+                  <details key={draft.id}>
                     <summary>{draft.benefit?.name || draft.id}</summary>
                     <SimpleTable
                       rows={[
                         {
                           항목: "출처",
                           값: draft.source?.label || draft.source?.id,
+                        },
+                        {
+                          항목: "출처 링크",
+                          값: draft.source?.original_url || draft.benefit?.apply_url,
                         },
                         { 항목: "변경유형", 값: draft.change_type || "new" },
                         {
