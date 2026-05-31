@@ -17,13 +17,13 @@ const FIELD_LABELS = {
   employment_status: '고용상태',
   monthly_income: '현재 월소득',
   expected_monthly_income: '예상 월소득',
-  expected_income_start_month: '예상 소득 발생 월',
+  expected_income_start_month: '예상 소득 시작 시점(몇 개월 뒤)',
   rent: '월세',
   deposit: '보증금',
   assets_million: '자산(백만원)',
   unemployment_benefit_receiving: '실업급여 수급 여부',
   unemployment_benefit_days_left: '실업급여 잔여일',
-  crisis_event: '위기사유',
+  crisis_event: '긴급 위기 상황 해당 여부',
   medical_expense_3m: '최근 3개월 의료비',
   credit_score: '신용점수',
   debt_monthly_payment: '월 대출상환액',
@@ -31,6 +31,12 @@ const FIELD_LABELS = {
   is_near_poverty: '차상위',
   has_housing_contract: '임대차계약 여부',
   wants_job_training: '직업훈련 희망',
+};
+
+
+const FIELD_HELP_TEXT = {
+  expected_income_start_month: '앞으로 알바·취업·사업소득 등이 생길 예정이면 “몇 개월 뒤부터 생기는지”를 적는 항목입니다. 예: 3 = 3개월 뒤부터 예상 월소득 반영',
+  crisis_event: '긴급복지·생계지원처럼 갑작스러운 실직, 연체, 생계곤란, 주거 위기 등이 있는지 묻는 항목입니다. 사유를 길게 쓰는 칸이 아니라 해당 여부를 예/아니오로 먼저 표시합니다.',
 };
 
 const HEADER_ALIASES = {
@@ -42,13 +48,13 @@ const HEADER_ALIASES = {
   employment_status: ['employment_status', '고용상태', '취업상태', '근로상태', '직업상태'],
   monthly_income: ['monthly_income', '월소득', '소득', '월 수입', '월급', '근로소득'],
   expected_monthly_income: ['expected_monthly_income', '예상소득', '예상 월소득', '예정 소득'],
-  expected_income_start_month: ['expected_income_start_month', '예상소득시작월', '소득발생월', '취업예정개월'],
+  expected_income_start_month: ['expected_income_start_month', '예상소득시작월', '예상 소득 시작 시점', '예상 소득 발생 월', '소득발생월', '취업예정개월', '몇개월뒤', '몇 개월 뒤'],
   rent: ['rent', '월세', '임대료', '월 임대료'],
   deposit: ['deposit', '보증금', '임대보증금'],
   assets_million: ['assets_million', '자산', '재산', '자산백만원'],
   unemployment_benefit_receiving: ['unemployment_benefit_receiving', '실업급여', '구직급여', '실업급여수급'],
   unemployment_benefit_days_left: ['unemployment_benefit_days_left', '실업급여잔여일', '수급잔여일', '잔여일'],
-  crisis_event: ['crisis_event', '위기사유', '긴급', '생계곤란'],
+  crisis_event: ['crisis_event', '위기사유', '긴급 위기 상황', '긴급', '생계곤란', '연체', '주거위기'],
   medical_expense_3m: ['medical_expense_3m', '의료비', '병원비', '최근의료비'],
   credit_score: ['credit_score', '신용점수', '신용'],
   debt_monthly_payment: ['debt_monthly_payment', '월상환', '대출상환', '상환액'],
@@ -263,6 +269,58 @@ export function validateExtraction(extraction) {
   return { profile: safe, ok: issues.length === 0 || issues.length <= 2, issues, confirmations, missingEvidence, evidence: extraction.evidence || [] };
 }
 
+
+function hasLoanLikeContext(text = '') {
+  return /(융자|대출|담보|원리금|상환|거치|균분상환|금리|연리|이차보전|이자차이|대출금|보증료|신용보증|보증지원|보증한도)/.test(String(text || ''));
+}
+
+function isCriteriaOnlyContext(text = '') {
+  const t = String(text || '');
+  if (/(지원|지급|급여|장려금|수당|교육비|훈련비|포상금|바우처|이용권|보조|환급)/.test(t)) return false;
+  return /(소득|재산|자산|보증금|월세금|월세|임차보증금|총\s*급여|선정기준|기준|이하|미만|초과)/.test(t);
+}
+
+function isMonthlyContext(text = '') {
+  return /(월\s*(최대|한도|마다|별|액)?|매월|월별|개월\s*마다)/.test(String(text || ''));
+}
+
+function isAnnualOrOneTimeContext(text = '') {
+  return /(연간|연\s*최대|매년|1년|전년도|장려금|일시|1회|한\s*번|포상금|컨설팅|까지\s*지원|한도)/.test(String(text || ''));
+}
+
+function toMonthlyEquivalent(amount, context = '') {
+  if (!amount) return 0;
+  if (isMonthlyContext(context)) return amount;
+  if (isAnnualOrOneTimeContext(context) || amount >= 1500000) return Math.round(amount / 12);
+  return amount;
+}
+
+function extractSupportAmountCandidate(text = '') {
+  const t = String(text || '');
+  const lines = t.split(/\r?\n|[。]/).map((line) => line.trim()).filter(Boolean);
+  const candidates = [];
+  const moneyRe = new RegExp(MONEY_AMOUNT_RE.source, 'g');
+  lines.forEach((line, idx) => {
+    const prev = lines[idx - 1] || '';
+    const next = lines[idx + 1] || '';
+    const context = `${prev}\n${line}\n${next}`;
+    const positive = /(지원내용|지원금액|지원액|지급액|지원|지급|급여|장려금|수당|교육비|방과후|훈련비|포상금|바우처|이용권|보조|환급)/.test(context);
+    if (!positive) return;
+    if (hasLoanLikeContext(context)) return;
+    for (const match of line.matchAll(moneyRe)) {
+      const amount = moneyToWon(match[1], 'auto');
+      if (!amount) continue;
+      const start = Math.max(0, (match.index || 0) - 24);
+      const end = Math.min(line.length, (match.index || 0) + match[0].length + 24);
+      const near = line.slice(start, end);
+      if (isCriteriaOnlyContext(near)) continue;
+      const monthly = toMonthlyEquivalent(amount, line);
+      candidates.push({ amount, monthly, source: line, confidence: isMonthlyContext(line) ? 0.9 : 0.78 });
+    }
+  });
+  return candidates.sort((a, b) => b.monthly - a.monthly)[0] || null;
+}
+
 function evidenceItem(field, label, value, source, confidence = 0.82) {
   return { field, label, value, source: String(source || '').trim(), confidence };
 }
@@ -313,10 +371,11 @@ export function extractPolicySignalsFromText(text = '') {
     result.deposit_cap = moneyToWon(deposit[1], 'auto');
     evidence.push(evidenceItem('deposit_cap', '보증금 기준', result.deposit_cap, deposit[0], 0.88));
   }
-  const support = t.match(new RegExp(`(?:지원내용|지급규모|지원금액|지원액|지급액)?[^\\n.。]{0,24}?(?:월\\s*최대|최대)\\s*${MONEY_AMOUNT_RE.source}[^\\n.。]{0,20}?(?:지원|지급)`));
+  const support = extractSupportAmountCandidate(t);
   if (support) {
-    result.support_amount = moneyToWon(support[1], 'auto');
-    evidence.push(evidenceItem('support_amount', '지원금', result.support_amount, support[0], 0.86));
+    result.support_amount = support.monthly;
+    result.support_period = isMonthlyContext(support.source) ? 'monthly' : 'monthly_equivalent';
+    evidence.push(evidenceItem('support_amount', '월 환산 지원금', result.support_amount, support.source, support.confidence));
   }
   for (const match of t.matchAll(/기준\s*중위소득\s*(\d{1,3})\s*%\s*이하/g)) {
     const value = Number(match[1]);
@@ -467,7 +526,7 @@ export function buildVerificationChecklist(pipelineResult) {
 
 export function profileToEditableRows(profile) {
   const p = normalizeProfile(profile);
-  return Object.entries(FIELD_LABELS).map(([field, label]) => ({ field, label, value: p[field] }));
+  return Object.entries(FIELD_LABELS).map(([field, label]) => ({ field, label, value: p[field], help: FIELD_HELP_TEXT[field] || '' }));
 }
 
-export { FIELD_LABELS, HEADER_ALIASES, moneyToWon };
+export { FIELD_LABELS, FIELD_HELP_TEXT, HEADER_ALIASES, moneyToWon, extractSupportAmountCandidate };
