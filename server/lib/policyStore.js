@@ -202,6 +202,29 @@ function buildPublicLinkLookup(apiCache = []) {
   return { byName, byId };
 }
 
+
+const LEGAL_SCOPE_RULES = [
+  { domain: '생활지원', label: '생계·긴급복지·기초생활 보장 정책', pattern: /국민기초생활|기초생활보장|긴급복지|생계급여|차상위|사회보장|복지|저소득/ },
+  { domain: '주거', label: '주거급여·공공임대·월세·전월세 지원 정책', pattern: /주거급여|공공주택|임대주택|주택|월세|전세|임대차|주거/ },
+  { domain: '고용', label: '고용보험·국민취업지원·직업훈련·구직 지원 정책', pattern: /고용보험|국민취업지원|직업능력|직업훈련|구직|취업|실업급여|근로자|일자리/ },
+  { domain: '의료', label: '의료급여·건강보험·의료비 지원 정책', pattern: /의료급여|건강보험|의료비|요양|병원|치료|건강/ },
+  { domain: '교육', label: '교육비·장학·학자금 지원 정책', pattern: /교육급여|교육비|장학|학자금|수업료|학교|대학생/ },
+  { domain: '청년', label: '청년 주거·취업·자립 지원 정책', pattern: /청년|청소년|대학생|사회초년|자립준비/ },
+  { domain: '금융', label: '서민금융·채무조정·보증·이자 지원 정책', pattern: /서민금융|채무|신용|보증|이자|대출|금융/ },
+];
+
+function inferLegalReferenceDisplayInfo(policy = {}) {
+  const text = [policy.name, policy.description, policy.target, policy.source?.label].filter(Boolean).join('\n');
+  const matched = LEGAL_SCOPE_RULES.filter((rule) => rule.pattern.test(text));
+  const scope = matched.length ? matched.map((rule) => rule.label).join(', ') : '복지·고용·주거 등 관련 정책';
+  return {
+    related_policy_domains: policy.related_policy_domains?.length ? policy.related_policy_domains : matched.map((rule) => rule.domain),
+    legal_basis_summary: policy.legal_basis_summary || `${policy.name || '법령'}은 ${scope}와 연결되는 상위 근거입니다. 직접 지급되는 혜택으로 계산하지 않고 정책 판정 설명과 원문 확인용으로 분리합니다.`,
+    legal_basis_role: policy.legal_basis_role || `${scope}의 대상자 범위, 지원 기준, 급여·서비스 범위, 행정기관 집행 권한을 설명하는 법적 근거입니다.`,
+    user_value: policy.user_value || '사용자는 이 근거를 통해 해당 혜택이 왜 존재하는지, 본인이 어떤 자격 기준 때문에 대상 또는 제외 대상이 되는지, 상담·문의·이의제기 때 어떤 원문을 확인해야 하는지 알 수 있습니다.',
+  };
+}
+
 function enhancePolicyForDisplay(policy = {}, lookup = null) {
   const next = sanitizeValue(policy || {});
   const current = sanitizePublicUrl(next.apply_url) || sanitizePublicUrl(next.detail_url) || sanitizePublicUrl(next.source?.original_url);
@@ -219,6 +242,9 @@ function enhancePolicyForDisplay(policy = {}, lookup = null) {
     next.link_reason = next.link_reason || 'API 호출 URL은 사용자용 링크가 아니므로 숨겼습니다.';
   }
   if (next.source) next.source = { ...next.source, original_url: publicLink || '' };
+  if (next.domain === '법령근거' || next.legal_basis) {
+    Object.assign(next, inferLegalReferenceDisplayInfo(next));
+  }
   return next;
 }
 
