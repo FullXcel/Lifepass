@@ -287,8 +287,12 @@ export function evaluateBenefit(benefit, profile) {
     warnings,
     conflict_group: benefit.exclusive_group || null,
     conflicts_with: benefit.conflicts_with || [],
+    conflict_group_label: benefit.exclusive_group_label || benefit.conflict_group_label || '',
+    conflict_reason: benefit.exclusive_group_reason || benefit.conflict_reason || '',
     required_docs: benefit.required_docs || [],
     apply_url: benefit.apply_url || benefit.source?.original_url || '',
+    link_status: benefit.link_status || (benefit.apply_url || benefit.source?.original_url ? 'ok' : 'missing'),
+    link_reason: benefit.link_reason || '',
     source: benefit.source || null,
     source_label: benefit.source?.label || benefit.source_label || '',
     description: benefit.description || '',
@@ -299,9 +303,16 @@ export function evaluateBenefit(benefit, profile) {
 export function evaluateAll(benefits, profile) { return benefits.map((b) => evaluateBenefit(b, profile)); }
 export function eligibleOnly(evaluations) { return evaluations.filter((ev) => ev.eligible); }
 
-function isConflicting(a, b) {
-  if (a.conflict_group && b.conflict_group && a.conflict_group === b.conflict_group) return true;
+function isExplicitConflict(a, b) {
   return (a.conflicts_with || []).includes(b.benefit_id) || (b.conflicts_with || []).includes(a.benefit_id);
+}
+
+function isGroupConflict(a, b) {
+  return Boolean(a.conflict_group && b.conflict_group && a.conflict_group === b.conflict_group);
+}
+
+function isConflicting(a, b) {
+  return isGroupConflict(a, b) || isExplicitConflict(a, b);
 }
 function hasConflict(items) {
   for (let i = 0; i < items.length; i += 1) for (let j = i + 1; j < items.length; j += 1) if (isConflicting(items[i], items[j])) return true;
@@ -312,14 +323,58 @@ function benefitObjectiveScore(item) {
   return Number(item.monthly_value || 0) * 1000 + Number(item.priority || 0);
 }
 
-function explainRejectedByConflict(rejected, selected) {
-  return rejected.map((rej) => {
-    const blockers = selected
-      .filter((s) => isConflicting(rej, s))
-      .map((s) => s.name)
-      .join(', ');
-    return `${rej.name}은(는) ${blockers || '선택된 다른 혜택'}와 중복/충돌되어 제외했습니다.`;
+function formatWon(value) {
+  return `${Number(value || 0).toLocaleString('ko-KR')}원`;
+}
+
+function conflictBasis(a, b) {
+  const basis = [];
+  if (isGroupConflict(a, b)) {
+    const label = a.conflict_group_label || b.conflict_group_label || a.conflict_group;
+    const reason = a.conflict_reason || b.conflict_reason || '같은 중복수급 제한 묶음으로 분류되었습니다.';
+    basis.push(`동일 중복수급 묶음(${label}): ${reason}`);
+  }
+  if (isExplicitConflict(a, b)) {
+    basis.push('정책 데이터의 conflicts_with 필드에 서로 동시에 선택하기 어렵다고 명시되어 있습니다.');
+  }
+  if (!basis.length) basis.push('선택된 혜택과 명시적 충돌 조건이 감지되었습니다.');
+  return basis;
+}
+
+function describeConflict(rejected, selected) {
+  const blockers = selected.filter((s) => isConflicting(rejected, s));
+  const primary = blockers
+    .slice()
+    .sort((a, b) => benefitObjectiveScore(b) - benefitObjectiveScore(a))[0];
+  const basis = blockers.flatMap((b) => conflictBasis(rejected, b));
+  const uniqueBasis = [...new Set(basis)];
+  const comparison = primary
+    ? `선택된 '${primary.name}'의 월환산 ${formatWon(primary.monthly_value)}, 중요도 ${primary.priority}점 / 제외된 '${rejected.name}'의 월환산 ${formatWon(rejected.monthly_value)}, 중요도 ${rejected.priority}점`
+    : `제외된 '${rejected.name}'의 월환산 ${formatWon(rejected.monthly_value)}, 중요도 ${rejected.priority}점`;
+  return {
+    benefit_id: rejected.benefit_id,
+    benefit_name: rejected.name,
+    blockers: blockers.map((b) => ({ benefit_id: b.benefit_id, name: b.name, monthly_value: b.monthly_value, priority: b.priority })),
+    reason: uniqueBasis.join(' / '),
+    comparison,
+  };
+}
+
+function explainRejectedByConflict(conflictDetails) {
+  return conflictDetails.map((detail) => {
+    const blockerNames = detail.blockers.map((b) => b.name).join(', ') || '선택된 다른 혜택';
+    return `${detail.benefit_name}은(는) ${blockerNames}와 중복/충돌되어 제외했습니다. 사유: ${detail.reason}. 비교: ${detail.comparison}.`;
   });
+}
+
+function sortByObjectiveDesc(a, b) {
+  const scoreDiff = benefitObjectiveScore(b) - benefitObjectiveScore(a);
+  if (scoreDiff !== 0) return scoreDiff;
+  const valueDiff = Number(b.monthly_value || 0) - Number(a.monthly_value || 0);
+  if (valueDiff !== 0) return valueDiff;
+  const priorityDiff = Number(b.priority || 0) - Number(a.priority || 0);
+  if (priorityDiff !== 0) return priorityDiff;
+  return String(a.name || '').localeCompare(String(b.name || ''), 'ko-KR');
 }
 
 function optimizeBenefitsExact(eligible) {
@@ -327,7 +382,7 @@ function optimizeBenefitsExact(eligible) {
   let bestScore = -1;
   const dfs = (idx, picked, score) => {
     if (idx === eligible.length) {
-      if (picked.length && score > bestScore) {
+      if (score > bestScore || (score === bestScore && picked.length > best.length)) {
         bestScore = score;
         best = [...picked];
       }
@@ -343,22 +398,66 @@ function optimizeBenefitsExact(eligible) {
   return best;
 }
 
-function optimizeBenefitsGreedy(eligible) {
-  const selected = [];
-  const sorted = [...eligible].sort((a, b) => {
-    const scoreDiff = benefitObjectiveScore(b) - benefitObjectiveScore(a);
-    if (scoreDiff !== 0) return scoreDiff;
-    const valueDiff = Number(b.monthly_value || 0) - Number(a.monthly_value || 0);
-    if (valueDiff !== 0) return valueDiff;
-    const priorityDiff = Number(b.priority || 0) - Number(a.priority || 0);
-    if (priorityDiff !== 0) return priorityDiff;
-    return String(a.name || '').localeCompare(String(b.name || ''), 'ko-KR');
-  });
-
-  for (const candidate of sorted) {
-    if (!selected.some((p) => isConflicting(p, candidate))) selected.push(candidate);
+function componentIsCompleteGraph(component) {
+  for (let i = 0; i < component.length; i += 1) {
+    for (let j = i + 1; j < component.length; j += 1) {
+      if (!isConflicting(component[i], component[j])) return false;
+    }
   }
-  return selected;
+  return true;
+}
+
+function conflictComponents(eligible) {
+  const visited = new Set();
+  const components = [];
+  for (const item of eligible) {
+    if (visited.has(item.benefit_id)) continue;
+    const stack = [item];
+    const component = [];
+    visited.add(item.benefit_id);
+    while (stack.length) {
+      const current = stack.pop();
+      component.push(current);
+      for (const other of eligible) {
+        if (visited.has(other.benefit_id)) continue;
+        if (isConflicting(current, other)) {
+          visited.add(other.benefit_id);
+          stack.push(other);
+        }
+      }
+    }
+    components.push(component);
+  }
+  return components;
+}
+
+function optimizeBenefitsByConflictComponents(eligible) {
+  const EXACT_COMPONENT_LIMIT = 22;
+  const selected = [];
+  const modes = [];
+  for (const component of conflictComponents(eligible)) {
+    if (component.length === 1) {
+      selected.push(component[0]);
+      continue;
+    }
+    if (component.length <= EXACT_COMPONENT_LIMIT) {
+      selected.push(...optimizeBenefitsExact(component));
+      modes.push(`충돌군 ${component.length}건 정확 탐색`);
+      continue;
+    }
+    if (componentIsCompleteGraph(component)) {
+      selected.push([...component].sort(sortByObjectiveDesc)[0]);
+      modes.push(`상호배타 충돌군 ${component.length}건 중 최고 금액 1건 선택`);
+      continue;
+    }
+    const greedySelected = [];
+    for (const candidate of [...component].sort(sortByObjectiveDesc)) {
+      if (!greedySelected.some((p) => isConflicting(p, candidate))) greedySelected.push(candidate);
+    }
+    selected.push(...greedySelected);
+    modes.push(`대형 복합 충돌군 ${component.length}건 휴리스틱 탐색`);
+  }
+  return { selected, modes };
 }
 
 export function optimizeBenefits(evaluations) {
@@ -367,28 +466,35 @@ export function optimizeBenefits(evaluations) {
     return {
       selected: [],
       rejected_due_to_conflict: [],
+      conflict_details: [],
       total_monthly_value: 0,
       explanation: ['현재 조건에서 확정적으로 선택 가능한 혜택이 없습니다.'],
+      optimization_mode: 'none',
     };
   }
 
-  // 기존 DFS는 가능 혜택이 100개 이상이면 2^n 조합을 탐색하여 브라우저가
-  // "응답 대기" 상태로 멈췄다. 작은 카탈로그는 정확 탐색을 유지하고,
-  // 공식 API 수집 정책처럼 큰 카탈로그는 충돌을 피하는 점수순 휴리스틱으로 전환한다.
-  const EXACT_OPTIMIZATION_LIMIT = 18;
-  const best = eligible.length <= EXACT_OPTIMIZATION_LIMIT
-    ? optimizeBenefitsExact(eligible)
-    : optimizeBenefitsGreedy(eligible);
+  // 가능 혜택 수가 많아도 전체 2^n 탐색으로 브라우저를 멈추지 않도록,
+  // 충돌 그래프를 독립 컴포넌트로 나눈 뒤 컴포넌트별로 정확 탐색한다.
+  // 서로 충돌하지 않는 컴포넌트끼리는 독립이므로 각 컴포넌트의 최선 선택을 합치면 전체 최선이다.
+  const { selected: best, modes } = optimizeBenefitsByConflictComponents(eligible);
 
   const selectedIds = new Set(best.map((b) => b.benefit_id));
   const rejected = eligible.filter((ev) => !selectedIds.has(ev.benefit_id) && best.some((s) => isConflicting(ev, s)));
+  const conflictDetails = rejected.map((ev) => describeConflict(ev, best));
   const total = best.reduce((s, b) => s + b.monthly_value, 0);
-  const explanation = explainRejectedByConflict(rejected, best);
-  if (eligible.length > EXACT_OPTIMIZATION_LIMIT) {
-    explanation.unshift(`가능 혜택 ${eligible.length}건이 감지되어 브라우저 멈춤을 막기 위해 점수순 빠른 조합 탐색을 적용했습니다.`);
+  const explanation = explainRejectedByConflict(conflictDetails);
+  if (modes.length) {
+    explanation.unshift(`최적 조합 탐색: ${[...new Set(modes)].join(', ')}.`);
   }
   if (!explanation.length) explanation.push('선택된 혜택 간 명시적 충돌이 없습니다.');
-  return { selected: best, rejected_due_to_conflict: rejected, total_monthly_value: total, explanation };
+  return {
+    selected: best.sort(sortByObjectiveDesc),
+    rejected_due_to_conflict: rejected,
+    conflict_details: conflictDetails,
+    total_monthly_value: total,
+    explanation,
+    optimization_mode: modes.some((m) => m.includes('휴리스틱')) ? 'component_heuristic' : 'component_exact',
+  };
 }
 
 export function evaluateMonth(profile, benefits, month) {
@@ -763,7 +869,7 @@ export function planNotifications(profile, workflow) {
 export function solveBenefitPortfolio(evaluations, maxItems = 6) {
   const plan = optimizeBenefits(evaluations);
   const selected = plan.selected.slice(0, maxItems).map((b) => ({ benefit: b.name, domain: b.domain, monthly_value: b.monthly_value, priority: b.priority, source: b.source_label || b.source?.label || '' }));
-  return { selected, conflict_free: !hasConflict(plan.selected), breakdown: { monthly_value: plan.total_monthly_value, priority_score: plan.selected.reduce((s, b) => s + b.priority, 0), objective_score: plan.total_monthly_value * 1000 + plan.selected.reduce((s, b) => s + b.priority, 0), max_items: maxItems } };
+  return { selected, conflict_free: !hasConflict(plan.selected), conflict_details: plan.conflict_details || [], breakdown: { monthly_value: plan.total_monthly_value, priority_score: plan.selected.reduce((s, b) => s + b.priority, 0), objective_score: plan.total_monthly_value * 1000 + plan.selected.reduce((s, b) => s + b.priority, 0), max_items: maxItems, optimization_mode: plan.optimization_mode } };
 }
 
 export function extractPolicyFacts(text) {
