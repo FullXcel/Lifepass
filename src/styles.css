@@ -494,6 +494,13 @@ tr:last-child td {
 .field-row span {
   font-weight: 800;
 }
+.field-help {
+  display: block;
+  margin-top: -2px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #64748b;
+}
 .warn-box {
   background: linear-gradient(135deg, #fffbeb, #fff7ed);
   border: 1px solid #fed7aa;
@@ -689,7 +696,7 @@ button:disabled {
   color: #2563eb;
 }
 .explain-details summary::after {
-  content: "상세 설명";
+  content: "�곸꽭 �ㅻ챸";
   font-size: 12px;
   font-weight: 800;
   color: #64748b;
