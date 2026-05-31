@@ -1226,7 +1226,7 @@ export default function App() {
           </Section>
 
           <Section
-            title="Counterfactual 비교"
+            title="예상 시나리오 비교"
             subtitle="같은 사용자가 다른 선택/상황을 맞았을 때 월환산효과가 어떻게 바뀌는지 비교합니다."
           >
             <SimpleTable
