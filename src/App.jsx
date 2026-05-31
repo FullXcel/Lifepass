@@ -854,10 +854,7 @@ export default function App() {
                 label="월 환산효과"
                 value={money(derived.plan.total_monthly_value)}
               />
-              <Metric
-                label="충돌 없는 조합"
-                value={derived.portfolio.conflict_free ? "예" : "아니오"}
-              />
+            
             </div>
             <div className="selected-list">
               {derived.plan.selected.map((b) => (
