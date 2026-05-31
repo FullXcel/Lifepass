@@ -108,6 +108,30 @@ function inferDomain(text = '', source = {}) {
   return '생활지원';
 }
 
+
+const LEGAL_SCOPE_RULES = [
+  { domain: '생활지원', label: '생계·긴급복지·기초생활 보장 정책', pattern: /국민기초생활|기초생활보장|긴급복지|생계급여|차상위|사회보장|복지|저소득/ },
+  { domain: '주거', label: '주거급여·공공임대·월세·전월세 지원 정책', pattern: /주거급여|공공주택|임대주택|주택|월세|전세|임대차|주거/ },
+  { domain: '고용', label: '고용보험·국민취업지원·직업훈련·구직 지원 정책', pattern: /고용보험|국민취업지원|직업능력|직업훈련|구직|취업|실업급여|근로자|일자리/ },
+  { domain: '의료', label: '의료급여·건강보험·의료비 지원 정책', pattern: /의료급여|건강보험|의료비|요양|병원|치료|건강/ },
+  { domain: '교육', label: '교육비·장학·학자금 지원 정책', pattern: /교육급여|교육비|장학|학자금|수업료|학교|대학생/ },
+  { domain: '청년', label: '청년 주거·취업·자립 지원 정책', pattern: /청년|청소년|대학생|사회초년|자립준비/ },
+  { domain: '금융', label: '서민금융·채무조정·보증·이자 지원 정책', pattern: /서민금융|채무|신용|보증|이자|대출|금융/ },
+];
+
+function inferLegalReferenceInfo(rawText = '', title = '') {
+  const text = `${title}\n${rawText}`;
+  const matched = LEGAL_SCOPE_RULES.filter((rule) => rule.pattern.test(text));
+  const relatedDomains = matched.map((rule) => rule.domain);
+  const scope = matched.length ? matched.map((rule) => rule.label).join(', ') : '복지·고용·주거 등 관련 정책';
+  return {
+    related_policy_domains: relatedDomains,
+    legal_basis_summary: `${title || '법령'}은 ${scope}와 연결되는 상위 근거입니다. 직접 지급되는 혜택으로 계산하지 않고 정책 판정 설명과 원문 확인용으로 분리합니다.`,
+    legal_basis_role: `${scope}의 대상자 범위, 지원 기준, 급여·서비스 범위, 행정기관 집행 권한을 설명하는 법적 근거입니다.`,
+    user_value: '사용자는 이 근거를 통해 해당 혜택이 왜 존재하는지, 본인이 어떤 자격 기준 때문에 대상 또는 제외 대상이 되는지, 상담·문의·이의제기 때 어떤 원문을 확인해야 하는지 알 수 있습니다.',
+  };
+}
+
 function firstUrl(value = '') {
   const text = stringifyValue(value);
   const match = text.match(URL_PATTERN);
@@ -183,6 +207,7 @@ export function normalizePolicyRecord(record = {}, source = {}, context = {}) {
   const contentHash = sha256(rawText);
   const id = `${sourceId}-${externalId}`.replace(/[^a-zA-Z0-9가-힣_-]/g, '-').slice(0, 120);
   const domain = inferDomain(rawText, source);
+  const legalInfo = domain === '법령근거' ? inferLegalReferenceInfo(rawText, title) : null;
   const requiredDocs = splitDocs(pick(record, DOC_KEYS), signals.required_docs || []);
   const publicLink = extractPublicUrl(record);
   const apiTraceUrl = extractApiTraceUrl(record, source);
@@ -203,6 +228,10 @@ export function normalizePolicyRecord(record = {}, source = {}, context = {}) {
     exclusive_group_label: isHousingCashLike ? '주거비/주택지원 중복검토 묶음' : undefined,
     exclusive_group_reason: isHousingCashLike ? '월세·임대·공공주택 등 주거 분야 혜택은 동일 비용 보전 또는 동일 모집공고 간 중복수급 제한이 있을 수 있어 검수 전 보수적으로 같은 묶음으로 분류했습니다.' : undefined,
     legal_basis: source.kind === 'legal_basis',
+    related_policy_domains: legalInfo?.related_policy_domains || [],
+    legal_basis_summary: legalInfo?.legal_basis_summary || '',
+    legal_basis_role: legalInfo?.legal_basis_role || '',
+    user_value: legalInfo?.user_value || '',
     conflicts_with: [],
     rule,
     warning_rule: warningRule,
@@ -236,7 +265,7 @@ export function normalizePolicyRecord(record = {}, source = {}, context = {}) {
 function buildReviewReasons(signals, rule, record = {}, source = {}, publicLink = extractPublicUrl(record)) {
   const reasons = [];
   if (record._lifepass_error) reasons.push('수집 과정에서 오류 응답이 발생했습니다. 원문 URL과 인증키를 확인해야 합니다.');
-  if (source.kind === 'legal_basis' || record?.legal_basis || record?.source?.kind === 'legal_basis') reasons.push('법령 데이터는 혜택 룰이 아니라 정책 판단 근거로 검수해야 합니다.');
+  if (source.kind === 'legal_basis' || record?.legal_basis || record?.source?.kind === 'legal_basis') reasons.push('법령 데이터는 직접 지급 혜택이 아니라 어떤 정책 분야의 자격·지원 기준을 뒷받침하는 근거인지 검수해야 합니다.');
   if (!rule.all?.length) reasons.push('자동으로 생성된 자격 조건이 부족합니다.');
   if (!signals.support_amount) reasons.push('지원 금액을 확정하지 못했습니다.');
   if (!signals.income_percent_criteria?.length) reasons.push('소득 기준을 확정하지 못했습니다.');
