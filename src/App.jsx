@@ -206,9 +206,10 @@ function useDerived(profile, benefits) {
 export default function App() {
   const [activeTab, setActiveTab] = useState(0);
   const [approvedPolicies, setApprovedPolicies] = useState([]);
+  const [collectedPolicies, setCollectedPolicies] = useState([]);
   const [legalReferences, setLegalReferences] = useState([]);
   const activeExternalPolicies = useMemo(() => {
-    return approvedPolicies
+    return collectedPolicies
       .filter(
         (policy) => policy?.id && policy?.name && policy?.domain !== "법령근거",
       )
@@ -222,8 +223,9 @@ export default function App() {
           : [],
         rule: policy.rule || { all: [] },
       }));
-  }, [approvedPolicies]);
+  }, [collectedPolicies]);
   const usingFallbackPolicies = activeExternalPolicies.length === 0;
+  const usingPendingCollectedPolicies = activeExternalPolicies.some((policy) => policy.pending_review || policy.review_status === "pending_review");
   const benefits = useMemo(() => {
     if (activeExternalPolicies.length > 0) return activeExternalPolicies;
     return benefitsSeed;
@@ -288,15 +290,27 @@ export default function App() {
           rule: p.rule || { all: [] },
         }))
         .filter((p) => p.id && p.name);
+      const collected = (policies.collected_policies || policies.policies || [])
+        .map((p) => ({
+          ...p,
+          required_docs: Array.isArray(p.required_docs) ? p.required_docs : [],
+          conflicts_with: Array.isArray(p.conflicts_with)
+            ? p.conflicts_with
+            : [],
+          rule: p.rule || { all: [] },
+        }))
+        .filter((p) => p.id && p.name);
       setApprovedPolicies(approved);
+      setCollectedPolicies(collected);
       setLegalReferences(
-        (policies.policies || []).filter((p) => p?.domain === "법령근거"),
+        collected.filter((p) => p?.domain === "법령근거"),
       );
       setPolicyAdmin({
         sources: sources.sources || [],
         enabled: sources.enabled || [],
         drafts: drafts.drafts || [],
         policies: approved,
+        collectedPolicies: collected,
       });
     } catch (error) {
       setPolicyAdminMessage(error?.message || String(error));
@@ -319,7 +333,7 @@ export default function App() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "정책 수집 실행 실패");
       setPolicyAdminMessage(
-        `수집 완료: 검수 후보 ${data.drafts_created}건, 저장 정책 ${data.summary?.policies || 0}건`,
+        `수집 완료: 검수 후보 ${data.drafts_created}건, 저장 정책 ${data.summary?.policies || 0}건. 후보가 있으면 데모 대신 수집 정책 기준으로 표시됩니다.`,
       );
       await loadPolicyAdmin();
     } catch (error) {
@@ -493,7 +507,13 @@ export default function App() {
             <Metric
               label="매칭 정책"
               value={`${benefits.length}개`}
-              note={usingFallbackPolicies ? "데모 정책 기준" : "승인 정책 기준"}
+              note={
+                usingFallbackPolicies
+                  ? "데모 정책 기준"
+                  : usingPendingCollectedPolicies
+                    ? "수집 후보 정책 기준"
+                    : "승인 정책 기준"
+              }
             />
             <Metric
               label="법령 근거"
@@ -788,8 +808,10 @@ export default function App() {
                 value={usingFallbackPolicies ? "데모 정책" : "수집 정책"}
                 note={
                   usingFallbackPolicies
-                    ? "외부 승인 정책이 없을 때만 사용"
-                    : `${activeExternalPolicies.length}개 승인 정책 기준`
+                    ? "수집 정책 후보도 없을 때만 사용"
+                    : usingPendingCollectedPolicies
+                      ? `${activeExternalPolicies.length}개 수집 후보 포함`
+                      : `${activeExternalPolicies.length}개 승인 정책 기준`
                 }
               />
               <Metric
