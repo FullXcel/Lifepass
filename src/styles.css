@@ -222,15 +222,20 @@ textarea {
   margin: 22px 0;
   position: sticky;
   top: 0;
-  z-index: 4;
+  z-index: 9999;
+  isolation: isolate;
   padding: 10px;
   border-radius: 22px;
   backdrop-filter: blur(16px);
-  background: rgba(255, 255, 255, 0.76);
+  background: rgba(255, 255, 255, 0.92);
   border: 1px solid rgba(148, 163, 184, 0.22);
   box-shadow: 0 12px 34px rgba(30, 41, 59, 0.08);
+  pointer-events: auto;
 }
 .tabs button {
+  position: relative;
+  z-index: 10000;
+  pointer-events: auto;
   border: 1px solid rgba(148, 163, 184, 0.26);
   background: rgba(255, 255, 255, 0.9);
   color: #334155;
@@ -271,6 +276,7 @@ textarea {
     #d946ef,
     #f97316
   );
+  pointer-events: none;
 }
 .section-head {
   display: flex;
