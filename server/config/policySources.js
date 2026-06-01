@@ -13,10 +13,14 @@ export const OFFICIAL_POLICY_SOURCES = [
     authParam: 'serviceKey',
     enabledEnv: 'ENABLE_BOKJIRO_CENTRAL',
     defaultEnabled: true,
-    defaultParams: { numOfRows: 50, pageNo: 1 },
+    defaultParams: { callTp: 'L', srchKeyCode: '003', numOfRows: 50, pageNo: 1 },
     pagination: { pageParam: 'pageNo', sizeParam: 'numOfRows', size: 50 },
     detail: {
-      idKeys: ['wlfareInfoId', 'servId', 'serviceId', 'id', '서비스ID'],
+      // 중앙부처 복지서비스 API는 같은 요청 링크에서 callTp=L/D로 목록·상세를 구분한다.
+      useBaseEndpoint: true,
+      inheritDefaultParams: false,
+      defaultParams: { callTp: 'D' },
+      idKeys: ['wlfareInfoId', 'servId', 'serviceId', 'id', '서비스ID', '복지서비스ID'],
       param: 'wlfareInfoId',
       maxDetails: 25,
     },
@@ -29,6 +33,7 @@ export const OFFICIAL_POLICY_SOURCES = [
     strategy: 'official_api',
     apiBaseEnv: 'BOKJIRO_LOCAL_API_URL',
     detailUrlEnv: 'BOKJIRO_LOCAL_DETAIL_API_URL',
+    listPath: 'LcgvWelfarelist',
     apiKeyEnv: 'BOKJIRO_LOCAL_SERVICE_KEY',
     fallbackApiKeyEnv: 'BOKJIRO_SERVICE_KEY',
     authParam: 'serviceKey',
@@ -37,7 +42,9 @@ export const OFFICIAL_POLICY_SOURCES = [
     defaultParams: { numOfRows: 50, pageNo: 1 },
     pagination: { pageParam: 'pageNo', sizeParam: 'numOfRows', size: 50 },
     detail: {
-      idKeys: ['wlfareInfoId', 'servId', 'serviceId', 'id', '서비스ID'],
+      // 지자체 API의 상세조회 URL은 공공데이터포털 Swagger에서 확인 후 BOKJIRO_LOCAL_DETAIL_API_URL에 넣는다.
+      // 목록조회만으로도 지원대상·선정기준 필드가 있으면 정책 후보로 저장된다.
+      idKeys: ['wlfareInfoId', 'servId', 'serviceId', 'id', '서비스ID', '복지서비스ID'],
       param: 'wlfareInfoId',
       maxDetails: 25,
     },
@@ -59,12 +66,13 @@ export const OFFICIAL_POLICY_SOURCES = [
     pagination: { pageParam: 'page', sizeParam: 'perPage', size: 50 },
     detail: {
       idKeys: ['serviceId', 'svcId', 'servId', '서비스ID', 'id'],
-      param: 'serviceId',
+      // 공공데이터포털/ODCloud gov24 상세 API는 일반 serviceId가 아니라 cond[서비스ID::EQ] 필터를 사용해야 한다.
+      param: 'cond[서비스ID::EQ]',
       maxDetails: 25,
     },
     support: {
       idKeys: ['serviceId', 'svcId', 'servId', '서비스ID', 'id'],
-      param: 'serviceId',
+      param: 'cond[서비스ID::EQ]',
       maxDetails: 25,
     },
     note: '정부·지자체·공공기관 혜택 정보를 정책 후보로 수집합니다.',
