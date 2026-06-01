@@ -1736,7 +1736,7 @@ export default function App() {
             </ExplanationDetails>
             <h3>법령 근거는 무엇을 설명하나</h3>
             <div className="info-box">
-              <strong>법령 근거는 직접 지급되는 혜택이 아니라, 추천된 정책 판단의 공식 배경입니다.</strong>
+              <strong>법령 근거는 직접 지급되는 혜택이 아니라, 추천된 정책 조합의 판단 근거입니다.</strong>
               <p>
                 예를 들어 주거 지원 정책은 주거급여·공공주택·임대차 관련 법령과 연결될 수 있고,
                 고용 지원 정책은 고용보험·국민취업지원·직업훈련 관련 법령과 연결될 수 있습니다.
