@@ -1780,7 +1780,7 @@ export default function App() {
 
           <Section
             title="정책 수집 관리"
-            subtitle="공식 API로 수집한 정책 후보를 검수하고 승인하는 운영자용 화면입니다. 실제 운영에서는 백엔드 서버와 관리자 토큰을 반드시 설정해야 합니다."
+            subtitle="공식 API로 수집한 정책을 검수하고 승인하는 운영자용 화면입니다. 실제 운영에서는 백엔드 서버와 관리자 토큰을 반드시 설정해야 합니다."
           >
             <div className="metrics-row">
               <Metric
