@@ -1690,7 +1690,7 @@ export default function App() {
         <main className="tab-panel">
           <Section
             title="판정 근거 확인하기"
-            subtitle="어떤 조건 때문에 가능 또는 불가능으로 판단했는지 확인할 수 있습니다."
+            subtitle="어떤 조건 때문에 가능 여부를 판단했는지 확인할 수 있습니다."
             right={
               <button className="primary" onClick={exportReport}>
                 리포트 저장
