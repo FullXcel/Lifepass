@@ -50,7 +50,12 @@ function endpointUrl(source, env, endpointEnv, detailConfig = null) {
   const configured = endpointEnv ? env[endpointEnv] : '';
   const base = env[source.apiBaseEnv] || '';
   if (detailConfig?.useBaseEndpoint) return appendPathIfNeeded(base || configured, detailConfig.path || '');
-  return appendPathIfNeeded(configured || base, detailConfig?.path || source.listPath || '');
+
+  const isAuxiliaryEndpoint = Boolean(detailConfig) && endpointEnv && endpointEnv !== source.apiBaseEnv;
+  if (isAuxiliaryEndpoint && !configured && !detailConfig?.path) return '';
+
+  const appendPath = detailConfig?.path || (!detailConfig ? (source.listPath || '') : '');
+  return appendPathIfNeeded(configured || base, appendPath);
 }
 
 function normalizeComparableId(value = '') {
