@@ -325,6 +325,60 @@ function evidenceItem(field, label, value, source, confidence = 0.82) {
   return { field, label, value, source: String(source || '').trim(), confidence };
 }
 
+function compactPolicyLine(line = '') {
+  return String(line || '').replace(/^[○●■□ㆍ·\-–—*\s]+/, '').trim();
+}
+
+function isPolicySectionHeading(line = '') {
+  return /(지원\s*대상|대상자|신청\s*대상|신청\s*자격|선정\s*기준|지원\s*조건|자격\s*요건|소득\s*기준|거주\s*요건|연령\s*기준|수급\s*자격)/.test(compactPolicyLine(line));
+}
+
+function isNextPolicyHeading(line = '') {
+  return /(지원\s*내용|신청\s*방법|신청\s*기간|제출\s*서류|구비\s*서류|문의|접수|소관|근거\s*법령|중복|유의\s*사항|처리\s*절차)/.test(compactPolicyLine(line));
+}
+
+function extractPolicySections(text = '', options = {}) {
+  const { headingRe = isPolicySectionHeading, maxLines = 10 } = options;
+  const lines = String(text || '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const chunks = [];
+  for (let i = 0; i < lines.length; i += 1) {
+    if (!headingRe(lines[i])) continue;
+    const section = [lines[i]];
+    for (let j = i + 1; j < lines.length && section.length <= maxLines; j += 1) {
+      if (isPolicySectionHeading(lines[j]) || isNextPolicyHeading(lines[j])) break;
+      section.push(lines[j]);
+    }
+    chunks.push(section.join('\n'));
+  }
+  return chunks.join('\n\n');
+}
+
+function eligibilityTextForPolicy(text = '') {
+  const scoped = extractPolicySections(text, { maxLines: 14 });
+  return scoped || '';
+}
+
+function supportContentTextForPolicy(text = '') {
+  return extractPolicySections(text, {
+    headingRe: (line) => /(지원\s*내용|지원\s*금액|지원\s*액|지급\s*액|급여\s*내용|서비스\s*내용|혜택\s*내용)/.test(compactPolicyLine(line)),
+    maxLines: 12,
+  }) || text;
+}
+
+function firstAgeRangeInEligibility(text = '') {
+  const scoped = eligibilityTextForPolicy(text);
+  if (!scoped) return null;
+  const patterns = [
+    /(?:만\s*)?(\d{1,2})\s*(?:세)?\s*(?:~|-|부터|이상)\s*(?:만\s*)?(\d{1,2})\s*세(?:\s*이하|까지)?/,
+    /(?:만\s*)?(\d{1,2})\s*세\s*이상[^\n]{0,24}?(?:만\s*)?(\d{1,2})\s*세\s*이하/,
+  ];
+  for (const pattern of patterns) {
+    const match = scoped.match(pattern);
+    if (match) return { match, source: match[0] };
+  }
+  return null;
+}
+
 export function detectDocumentKind(text = '') {
   const t = String(text || '');
   const policySignals = [
@@ -343,6 +397,9 @@ export function extractPolicySignalsFromText(text = '') {
   const t = String(text || '');
   const lines = t.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
   const evidence = [];
+  const eligibilityText = eligibilityTextForPolicy(t);
+  const supportText = supportContentTextForPolicy(t);
+  const criteriaText = eligibilityText || t;
   const result = {
     title: lines.find((line) => /(지원|급여|사업|제도|공고|안내)/.test(line)) || lines[0] || '정책 문서',
     regions: REGIONS.filter((r) => t.includes(r)),
@@ -356,28 +413,28 @@ export function extractPolicySignalsFromText(text = '') {
     evidence,
   };
 
-  const ageRange = t.match(/(?:만\s*)?(\d{1,2})\s*(?:세)?\s*(?:~|-|부터|이상)\s*(?:만\s*)?(\d{1,2})\s*세(?:\s*이하|까지)?/) || t.match(/(?:만\s*)?(\d{1,2})\s*세\s*이상[^\n]{0,12}?(?:만\s*)?(\d{1,2})\s*세\s*이하/);
-  if (ageRange) {
-    result.age_range = [Number(ageRange[1]), Number(ageRange[2])].sort((a, b) => a - b);
-    evidence.push(evidenceItem('age_range', '연령 기준', `${result.age_range[0]}~${result.age_range[1]}세`, ageRange[0], 0.9));
+  const ageRange = firstAgeRangeInEligibility(t);
+  if (ageRange?.match) {
+    result.age_range = [Number(ageRange.match[1]), Number(ageRange.match[2])].sort((a, b) => a - b);
+    evidence.push(evidenceItem('age_range', '연령 기준', `${result.age_range[0]}~${result.age_range[1]}세`, ageRange.source, 0.9));
   }
-  const rent = t.match(new RegExp(`(?:월세|임대료|차임)[^\\n]{0,18}?${MONEY_AMOUNT_RE.source}\\s*(?:이하|까지|미만)?`));
+  const rent = criteriaText.match(new RegExp(`(?:월세|임대료|차임)[^\n]{0,18}?${MONEY_AMOUNT_RE.source}\\s*(?:이하|까지|미만)?`));
   if (rent) {
     result.rent_cap = moneyToWon(rent[1], 'auto');
     evidence.push(evidenceItem('rent_cap', '월세 기준', result.rent_cap, rent[0], 0.88));
   }
-  const deposit = t.match(new RegExp(`(?:보증금|임차보증금|임대보증금)[^\\n]{0,18}?${MONEY_AMOUNT_RE.source}\\s*(?:이하|까지|미만)?`));
+  const deposit = criteriaText.match(new RegExp(`(?:보증금|임차보증금|임대보증금)[^\n]{0,18}?${MONEY_AMOUNT_RE.source}\\s*(?:이하|까지|미만)?`));
   if (deposit) {
     result.deposit_cap = moneyToWon(deposit[1], 'auto');
     evidence.push(evidenceItem('deposit_cap', '보증금 기준', result.deposit_cap, deposit[0], 0.88));
   }
-  const support = extractSupportAmountCandidate(t);
+  const support = extractSupportAmountCandidate(supportText);
   if (support) {
     result.support_amount = support.monthly;
     result.support_period = isMonthlyContext(support.source) ? 'monthly' : 'monthly_equivalent';
     evidence.push(evidenceItem('support_amount', '월 환산 지원금', result.support_amount, support.source, support.confidence));
   }
-  for (const match of t.matchAll(/기준\s*중위소득\s*(\d{1,3})\s*%\s*이하/g)) {
+  for (const match of criteriaText.matchAll(/기준\s*중위소득\s*(\d{1,3})\s*%\s*이하/g)) {
     const value = Number(match[1]);
     if (!result.income_percent_criteria.includes(value)) result.income_percent_criteria.push(value);
     evidence.push(evidenceItem('income_percent_criteria', '소득 기준', `${value}% 이하`, match[0], 0.86));
