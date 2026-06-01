@@ -86,7 +86,7 @@ function xmlNodeToObject(xml = '') {
 export function parseXmlRecords(xml = '') {
   const text = String(xml || '');
   const records = [];
-  const preferredTags = ['law', 'item', 'row', 'data', 'service', 'policy', 'plcy', 'wanted'];
+  const preferredTags = ['law', 'servList', 'serviceList', 'welfareInfo', 'wlfareInfo', 'wantedDtl', 'wanted', 'item', 'row', 'data', 'service', 'policy', 'plcy'];
   for (const tag of preferredTags) {
     const pattern = new RegExp(`<${tag}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/${tag}>`, 'gi');
     let match;
