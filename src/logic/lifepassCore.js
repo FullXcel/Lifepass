@@ -353,6 +353,42 @@ function hasEffectiveRule(rule) {
   return false;
 }
 
+function flattenRuleNodes(rule, out = []) {
+  if (!rule || typeof rule !== 'object') return out;
+  if (rule.field) out.push(rule);
+  if (Array.isArray(rule.all)) rule.all.forEach((node) => flattenRuleNodes(node, out));
+  if (Array.isArray(rule.any)) rule.any.forEach((node) => flattenRuleNodes(node, out));
+  if (rule.not) flattenRuleNodes(rule.not, out);
+  return out;
+}
+
+function benefitText(benefit = {}) {
+  return [benefit.name, benefit.description, benefit.target, benefit.domain].filter(Boolean).join(' ');
+}
+
+function isLikelyPreschoolPolicy(benefit = {}) {
+  return /(유아|영유아|누리과정|유치원|어린이집|보육|방과후과정|3~5세|3-5세)/.test(benefitText(benefit));
+}
+
+function isLikelyChildOrCaregiverPolicy(benefit = {}) {
+  return /(유아|영유아|아동|어린이|보육|유치원|초등|자녀|부양자녀|양육|출산|임신|보호자|가족돌봄|청소년)/.test(benefitText(benefit));
+}
+
+function suspiciousRuleWarning(benefit = {}) {
+  const nodes = flattenRuleNodes(benefit.rule);
+  if (!nodes.length) return '';
+  const ageNodes = nodes.filter((node) => node.field === 'age' && node.op === 'between' && Array.isArray(node.value));
+  const hasPreschoolAge = ageNodes.some((node) => Number(node.value[0]) <= 5 && Number(node.value[1]) <= 7);
+  if (hasPreschoolAge && !isLikelyPreschoolPolicy(benefit)) {
+    return '정책 내용과 만 3~5세 연령 조건이 맞지 않아 자동 판정을 보류했습니다. 정부24 상세정보가 다른 정책과 섞였을 가능성이 있습니다.';
+  }
+  const hasChildAge = ageNodes.some((node) => Number(node.value[1]) < 19);
+  if (hasChildAge && !isLikelyChildOrCaregiverPolicy(benefit)) {
+    return '정책 내용과 아동·청소년 연령 조건이 맞지 않아 자동 판정을 보류했습니다. 수집 상세정보가 다른 정책과 섞였을 가능성이 있습니다.';
+  }
+  return '';
+}
+
 export function evaluateRule(rule, profile) {
   const p = normalizeProfile(profile);
   const traces = [];
@@ -375,13 +411,16 @@ export function evaluateRule(rule, profile) {
 }
 
 export function evaluateBenefit(benefit, profile) {
-  const autoRuleReady = hasEffectiveRule(benefit.rule);
+  const ruleWarning = suspiciousRuleWarning(benefit);
+  const autoRuleReady = hasEffectiveRule(benefit.rule) && !ruleWarning;
   const [eligible, trace] = autoRuleReady ? evaluateRule(benefit.rule, profile) : [false, []];
   const matched = trace.filter((t) => t.passed).map((t) => t.label);
-  const unmet = autoRuleReady
-    ? trace.filter((t) => !t.passed).map((t) => t.label)
-    : ['자격 조건을 자동 판정할 규칙이 부족해 추천 조합에서 제외했습니다.'];
-  const warnings = [];
+  const unmet = ruleWarning
+    ? [ruleWarning]
+    : (autoRuleReady
+      ? trace.filter((t) => !t.passed).map((t) => t.label)
+      : ['자격 조건을 자동 판정할 규칙이 부족해 추천 조합에서 제외했습니다.']);
+  const warnings = ruleWarning ? [ruleWarning] : [];
   if (benefit.warning_rule) {
     const [warningPassed, warningTrace] = evaluateRule(benefit.warning_rule, profile);
     if (warningPassed) warnings.push(...warningTrace.filter((t) => t.passed).map((t) => t.label));
