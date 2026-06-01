@@ -32,6 +32,40 @@ function pick(record, keys = []) {
   return '';
 }
 
+function appendPathIfNeeded(baseUrl = '', appendPath = '') {
+  if (!baseUrl || !appendPath) return baseUrl;
+  try {
+    const url = new URL(baseUrl);
+    const normalizedPath = appendPath.replace(/^\/+/, '');
+    if (!url.pathname.toLowerCase().endsWith(`/${normalizedPath.toLowerCase()}`)) {
+      url.pathname = `${url.pathname.replace(/\/+$/, '')}/${normalizedPath}`;
+    }
+    return url.toString();
+  } catch {
+    return baseUrl;
+  }
+}
+
+function endpointUrl(source, env, endpointEnv, detailConfig = null) {
+  const configured = endpointEnv ? env[endpointEnv] : '';
+  const base = env[source.apiBaseEnv] || '';
+  if (detailConfig?.useBaseEndpoint) return appendPathIfNeeded(base || configured, detailConfig.path || '');
+  return appendPathIfNeeded(configured || base, detailConfig?.path || source.listPath || '');
+}
+
+function normalizeComparableId(value = '') {
+  return String(value || '').trim().replace(/\s+/g, '').toLowerCase();
+}
+
+function recordsContainApiError(records = []) {
+  return records.find((record) => {
+    const code = String(record?.resultCode || record?.resultCd || record?.header?.resultCode || '').trim();
+    const message = String(record?.resultMessage || record?.resultMsg || record?.header?.resultMsg || record?.errorMsg || '').trim();
+    if (!code && !message) return false;
+    return !['00', '0000', '0', 'success', 'ok'].includes(code.toLowerCase()) || /error|invalid|fail|exception|오류|실패|에러/i.test(message);
+  }) || null;
+}
+
 function inferMimeFromUrl(url = '', contentType = '') {
   if (contentType) return contentType;
   const pathname = (() => { try { return new URL(url).pathname; } catch { return url; } })();
@@ -120,16 +154,45 @@ function recordIdValues(record = {}, keys = []) {
   return keys.map((key) => String(pick(record, [key]) || '').trim()).filter(Boolean);
 }
 
-function detailMatchesRequestedId(detailRecord = {}, detailConfig = {}, requestedId = '') {
-  const requested = String(requestedId || '').trim();
-  if (!requested) return true;
-  const candidates = recordIdValues(detailRecord, detailConfig.idKeys || []);
-  if (!candidates.length) return true;
-  return candidates.includes(requested);
+function selectMatchingDetailRecord(detailRecords = [], detailConfig = {}, requestedId = '', sourceRecord = {}) {
+  const requested = normalizeComparableId(requestedId);
+  if (!requested) return { record: detailRecords[0] || {}, matched: Boolean(detailRecords[0]), reason: 'requested-id-empty' };
+
+  const idKeys = Array.from(new Set([
+    ...(detailConfig.idKeys || []),
+    '서비스ID', 'serviceId', 'svcId', 'servId', 'wlfareInfoId', '복지서비스ID', '법령일련번호', 'MST', 'id',
+  ]));
+
+  const exact = detailRecords.find((candidate) => {
+    const ids = recordIdValues(candidate, idKeys).map(normalizeComparableId);
+    return ids.includes(requested);
+  });
+  if (exact) return { record: exact, matched: true, reason: 'exact-id-match' };
+
+  const sourceName = String(pick(sourceRecord, ['서비스명', 'servNm', 'serviceName', 'name', 'title']) || '').trim();
+  if (sourceName) {
+    const byTitle = detailRecords.find((candidate) => {
+      const title = String(pick(candidate, ['서비스명', 'servNm', 'serviceName', 'name', 'title']) || '').trim();
+      return title && title === sourceName;
+    });
+    if (byTitle) return { record: byTitle, matched: true, reason: 'title-match-without-id' };
+  }
+
+  if (detailRecords.length === 1) {
+    const only = detailRecords[0];
+    const ids = recordIdValues(only, idKeys).map(normalizeComparableId);
+    if (!ids.length) return { record: only, matched: true, reason: 'single-record-no-id' };
+  }
+
+  return {
+    record: {},
+    matched: false,
+    reason: `상세조회 응답에서 요청 ID(${requestedId})와 일치하는 항목을 찾지 못했습니다. 첫 번째 응답을 붙이지 않고 상세정보 결합을 보류합니다.`,
+  };
 }
 
 async function enrichWithEndpoint(records, source, env, config, endpointEnv, detailConfig, targetKey) {
-  const detailUrl = endpointEnv ? env[endpointEnv] : '';
+  const detailUrl = endpointUrl(source, env, endpointEnv, detailConfig);
   if (!detailUrl || !detailConfig) return records;
   const maxDetails = Math.min(
     Math.max(0, Number(env[source.maxDetailsEnv] || config.maxDetailsPerSource || detailConfig.maxDetails || 0)),
@@ -144,16 +207,23 @@ async function enrichWithEndpoint(records, source, env, config, endpointEnv, det
       const url = withApiParams(detailUrl, {
         key: apiKeyForSource(source, env),
         authParam: source.authParam || 'serviceKey',
-        defaultParams: source.defaultParams || {},
+        defaultParams: detailConfig.inheritDefaultParams === false ? (detailConfig.defaultParams || {}) : { ...(source.defaultParams || {}), ...(detailConfig.defaultParams || {}) },
         params: { [detailConfig.param || 'id']: id },
       });
       const { records: detailRecords } = await fetchApiRecords(url, config, { forceRefresh: config.forceRefresh });
-      const detailRecord = detailRecords[0] || {};
-      if (detailMatchesRequestedId(detailRecord, detailConfig, id)) {
+      const apiError = recordsContainApiError(detailRecords);
+      if (apiError) {
+        target[`${targetKey}_warning`] = `${apiError.resultCode || ''} ${apiError.resultMessage || apiError.resultMsg || '상세조회 API 오류'}`.trim();
+        target[`${targetKey}_url`] = redactUrlCredentials(url);
+        continue;
+      }
+      const { record: detailRecord, matched, reason } = selectMatchingDetailRecord(detailRecords, detailConfig, id, record);
+      if (matched) {
         target[targetKey] = detailRecord;
+        target[`${targetKey}_match_reason`] = reason;
         target[`${targetKey}_url`] = redactUrlCredentials(url);
       } else {
-        target[`${targetKey}_warning`] = `상세조회 응답 ID 불일치: requested=${id}`;
+        target[`${targetKey}_warning`] = reason;
         target[`${targetKey}_url`] = redactUrlCredentials(url);
       }
     } catch (error) {
@@ -172,7 +242,7 @@ async function enrichRecords(records, source, env, config) {
 }
 
 async function collectOfficialApi(source, config, env = process.env) {
-  const baseUrl = env[source.apiBaseEnv];
+  const baseUrl = endpointUrl(source, env, source.apiBaseEnv, { path: source.listPath });
   if (!baseUrl) {
     return { source, records: [], skipped: true, reason: `${source.apiBaseEnv} 환경변수가 없어 수집을 건너뜁니다.` };
   }
@@ -190,6 +260,16 @@ async function collectOfficialApi(source, config, env = process.env) {
     try {
       const result = await fetchApiRecords(url, config, { forceRefresh: config.forceRefresh });
       fetchedUrls.push(redactUrlCredentials(result.redactedUrl || result.url));
+      const apiError = recordsContainApiError(result.records);
+      if (apiError) {
+        records.push({
+          title: `${source.label} 수집 오류`,
+          description: `${apiError.resultCode || ''} ${apiError.resultMessage || apiError.resultMsg || 'API 오류 응답'}`.trim(),
+          url: redactUrlCredentials(result.url || url),
+          _lifepass_error: true,
+        });
+        break;
+      }
       records.push(...result.records);
       if (!result.records.length) break;
     } catch (error) {
