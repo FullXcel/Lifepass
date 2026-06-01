@@ -497,7 +497,7 @@ function buildLegalBasisRows(legalReferences = [], policies = []) {
       rows.push({
         법령명: entry.shortName ? `${entry.name}(${entry.shortName})` : entry.name,
         소관부처: entry.ministry || "확인 필요",
-        근거가되는대상: related.length ? related.join(", ") : roleInfo.target,
+        대상: related.length ? related.join(", ") : roleInfo.target,
         근거역할: roleInfo.role,
         사용자가알아야하는이유: roleInfo.userValue,
         근거링크: publicLink ? { url: publicLink, label: "법령 원문 열기" } : linkCellFor(law),
@@ -1752,7 +1752,7 @@ export default function App() {
                 {
                   법령명: "승인된 법령 근거 없음",
                   소관부처: "-",
-                  근거가되는대상: "LAW_OPEN_API_OC 설정 후 법령 후보를 수집·승인하면 표시됩니다.",
+                  대상: "LAW_OPEN_API_OC 설정 후 법령 후보를 수집·승인하면 표시됩니다.",
                   근거역할: "현재는 정책 추천의 상위 법령 근거를 화면에 연결할 수 없습니다.",
                   사용자가알아야하는이유: "법령 근거가 없으면 최신 공고와 접수 기관 안내를 별도로 확인해야 합니다.",
                   근거링크: "-",
