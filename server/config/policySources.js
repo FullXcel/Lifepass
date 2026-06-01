@@ -42,8 +42,8 @@ export const OFFICIAL_POLICY_SOURCES = [
     defaultParams: { numOfRows: 50, pageNo: 1 },
     pagination: { pageParam: 'pageNo', sizeParam: 'numOfRows', size: 50 },
     detail: {
-      // 지자체 API의 상세조회 URL은 공공데이터포털 Swagger에서 확인 후 BOKJIRO_LOCAL_DETAIL_API_URL에 넣는다.
-      // 목록조회만으로도 지원대상·선정기준 필드가 있으면 정책 후보로 저장된다.
+      // 지자체 API 상세조회 endpoint는 /LcgvWelfaredetailed 이다.
+      // BOKJIRO_LOCAL_DETAIL_API_URL이 비어 있으면 상세조회 없이 목록 데이터만 정책 후보로 저장된다.
       idKeys: ['wlfareInfoId', 'servId', 'serviceId', 'id', '서비스ID', '복지서비스ID'],
       param: 'wlfareInfoId',
       maxDetails: 25,
