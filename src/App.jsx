@@ -1035,7 +1035,7 @@ export default function App() {
               <h3>정책·법령 자동 수집</h3>
               <p>
                 복지로, 정부24, 청년정책 API와 국가법령정보센터 법령 데이터를
-                함께 수집해 정책 판단 근거를 보강합니다.
+                함께 수집하여 최적의 혜택 조합을 제공합니다.
               </p>
             </article>
             <article className="feature-card gradient-orange">
