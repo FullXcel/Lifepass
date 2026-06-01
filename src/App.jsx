@@ -1003,7 +1003,7 @@ export default function App() {
         <main className="landing-screen">
           <section className="landing-hero">
             <div className="landing-copy">
-              <div className="eyebrow">LifePass · 복지 혜택 최대화 플랫폼</div>
+              <div className="eyebrow">LifePass AI · 복지 혜택 최대화 플랫폼</div>
               <h1>
                 내 상황과 정책·법령 데이터를 한 번에 연결해 받을 수 있는 혜택을
                 찾아냅니다
