@@ -1865,7 +1865,7 @@ export default function App() {
               onClick={loadPolicyAdmin}
               disabled={policyAdminLoading}
             >
-              상태 새로고침
+              새로고침
             </button>
             <button
               className="primary secondary-action"
