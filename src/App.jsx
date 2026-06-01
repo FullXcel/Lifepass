@@ -1516,7 +1516,7 @@ export default function App() {
         <main className="tab-panel">
           <Section
             title="생애전환·복지절벽 시뮬레이션"
-            subtitle="실업급여 종료, 소득 발생, 소득 구간 변화에 따라 혜택 신규/상실을 보여주는 LifePass의 핵심 차별점입니다."
+            subtitle="실업급여 종료, 소득 발생, 소득 구간 변화에 따라 혜택 변동 양상을 보여줍니다."
           >
             <div className="metrics-row">
               <Metric
