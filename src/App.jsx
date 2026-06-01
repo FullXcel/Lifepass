@@ -1117,7 +1117,7 @@ export default function App() {
         <main className="tab-panel">
           <Section
             title="내 정보 불러오기"
-            subtitle="나이, 거주지역, 소득, 월세 같은 정보를 입력하면 받을 수 있는 복지 혜택을 안내해 드립니다."
+            subtitle="나이, 거주지역, 소득, 월세 등의 정보를 입력하면 받을 수 있는 복지 혜택을 안내해 드립니다."
           >
             <div className="two-col">
               <div className="input-path-card">
