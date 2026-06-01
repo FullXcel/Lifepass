@@ -399,7 +399,9 @@ GOV24_BENEFIT_API_URL=
 
 - `BOKJIRO_SERVICE_KEY`: 복지로 또는 공공데이터포털의 복지서비스 API를 호출하기 위한 인증키입니다.
 - `BOKJIRO_CENTRAL_API_URL`: 중앙부처 복지서비스 정보를 가져올 API 주소입니다.
+- `BOKJIRO_CENTRAL_DETAIL_API_URL`: 중앙부처 복지서비스 상세조회를 위한 주소입니다. 현재 코드는 중앙부처 API에서 callTp=L/D 파라미터로 목록/상세를 구분하므로 목록 URL과 같은 endpoint를 사용할 수 있습니다.
 - `BOKJIRO_LOCAL_API_URL`: 지자체 복지서비스 정보를 가져올 API 주소입니다.
+- `BOKJIRO_LOCAL_DETAIL_API_URL`: 지자체 복지서비스 상세조회를 위한 주소입니다. 목록조회는 LcgvWelfarelist, 상세조회는 LcgvWelfaredetailed를 사용합니다.
 - `GOV24_SERVICE_KEY`: 정부24 또는 공공서비스 혜택 정보 API를 호출하기 위한 인증키입니다.
 - `GOV24_BENEFIT_API_URL`: 정부24·공공서비스 혜택 정보를 가져올 API 주소입니다.
 
