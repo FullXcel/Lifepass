@@ -383,8 +383,14 @@ POLICY_SCHEDULER_INTERVAL_MS=21600000
 
 ```env
 BOKJIRO_SERVICE_KEY=
-BOKJIRO_CENTRAL_API_URL=
-BOKJIRO_LOCAL_API_URL=
+BOKJIRO_LOCAL_SERVICE_KEY=
+
+BOKJIRO_CENTRAL_API_URL=http://apis.data.go.kr/B554287/NationalWelfareInformationsV001/NationalWelfarelistV001
+BOKJIRO_CENTRAL_DETAIL_API_URL=http://apis.data.go.kr/B554287/NationalWelfareInformationsV001/NationalWelfarelistV001
+
+BOKJIRO_LOCAL_API_URL=http://apis.data.go.kr/B554287/LocalGovernmentWelfareInformations/LcgvWelfarelist
+BOKJIRO_LOCAL_DETAIL_API_URL=http://apis.data.go.kr/B554287/LocalGovernmentWelfareInformations/LcgvWelfaredetailed
+
 GOV24_SERVICE_KEY=
 GOV24_BENEFIT_API_URL=
 ```
