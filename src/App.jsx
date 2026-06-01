@@ -1015,7 +1015,7 @@ export default function App() {
               </p>
             </div>
             <div className="landing-orbit" aria-hidden="true">
-              <div className="orbit-card card-a">정책 API</div>
+              <div className="orbit-card card-a">정책 혜택</div>
               <div className="orbit-card card-b">법령 근거</div>
               <div className="orbit-core">LifePass AI</div>
             </div>
