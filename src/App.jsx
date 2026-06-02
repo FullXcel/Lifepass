@@ -719,7 +719,7 @@ export default function App() {
   const activeExternalPolicies = useMemo(() => {
     return collectedPolicies
       .filter(
-        (policy) => policy?.id && policy?.name && policy?.domain !== '법령근거',
+        (policy) => policy?.id && policy?.name && policy?.domain !== '법령근거' && policy?.recommended_for_individuals !== false,
       )
       .map((policy) => ({
         ...policy,
