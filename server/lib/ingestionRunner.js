@@ -261,29 +261,25 @@ async function collectOfficialApi(source, config, env = process.env) {
   const urls = pageUrls(source, baseUrl, env, config);
   const records = [];
   const fetchedUrls = [];
+  const collectionWarnings = [];
   for (const url of urls) {
     try {
       const result = await fetchApiRecords(url, config, { forceRefresh: config.forceRefresh });
       fetchedUrls.push(redactUrlCredentials(result.redactedUrl || result.url));
       const apiError = recordsContainApiError(result.records);
       if (apiError) {
-        records.push({
-          title: `${source.label} 수집 오류`,
-          description: `${apiError.resultCode || ''} ${apiError.resultMessage || apiError.resultMsg || 'API 오류 응답'}`.trim(),
-          url: redactUrlCredentials(result.url || url),
-          _lifepass_error: true,
-        });
+        collectionWarnings.push(`${apiError.resultCode || ''} ${apiError.resultMessage || apiError.resultMsg || 'API 오류 응답'}`.trim());
         break;
       }
       records.push(...result.records);
       if (!result.records.length) break;
     } catch (error) {
-      records.push({ title: `${source.label} 수집 오류`, description: redactUrlCredentials(error.message), url: redactUrlCredentials(url), _lifepass_error: true });
+      collectionWarnings.push(redactUrlCredentials(error.message));
       break;
     }
   }
   const enriched = await enrichRecords(records, source, env, config);
-  return { source: { ...source, lastFetchedUrl: fetchedUrls[0] || redactUrlCredentials(urls[0]), fetchedUrls }, records: enriched, skipped: false };
+  return { source: { ...source, lastFetchedUrl: fetchedUrls[0] || redactUrlCredentials(urls[0]), fetchedUrls, collectionWarnings }, records: enriched, skipped: false, warnings: collectionWarnings };
 }
 
 async function collectAllowlistCrawler(source, config, env = process.env) {
@@ -331,6 +327,7 @@ export async function ingestPolicySources(options = {}) {
       }
       logs.push(`[collect] ${source.label}: ${collection.records.length}건`);
       for (const record of collection.records) {
+        if (record?._lifepass_error) continue;
         const normalized = normalizePolicyRecord(record, collection.source);
         const externalId = normalized.source.external_id;
         const contentHash = normalized.ingestion.content_hash || sha256(normalized.rawText);
