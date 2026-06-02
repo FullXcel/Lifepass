@@ -333,8 +333,72 @@ function inferLegalReferenceDisplayInfo(policy = {}) {
   };
 }
 
+
+function policyDisplayText(policy = {}) {
+  return [policy.name, policy.description, policy.target, policy.domain, policy.source?.label, policy.recommendation_scope_reason]
+    .filter(Boolean)
+    .join(' ');
+}
+
+function isLikelyPreschoolPolicy(policy = {}) {
+  return /(유아|영유아|누리과정|유치원|어린이집|보육|방과후과정|3~5세|3-5세)/.test(policyDisplayText(policy));
+}
+
+function isLikelyChildOrCaregiverPolicy(policy = {}) {
+  return /(유아|영유아|아동|어린이|보육|유치원|초등|자녀|부양자녀|양육|출산|임신|보호자|가족돌봄|청소년)/.test(policyDisplayText(policy));
+}
+
+function sanitizeRuleForDisplay(rule, policy = {}) {
+  if (!rule || typeof rule !== 'object') return rule;
+  if (Array.isArray(rule.all)) {
+    const all = rule.all
+      .map((node) => sanitizeRuleForDisplay(node, policy))
+      .filter(Boolean);
+    return { ...rule, all };
+  }
+  if (Array.isArray(rule.any)) {
+    const any = rule.any
+      .map((node) => sanitizeRuleForDisplay(node, policy))
+      .filter(Boolean);
+    return { ...rule, any };
+  }
+  if (rule.not) {
+    const not = sanitizeRuleForDisplay(rule.not, policy);
+    return not ? { ...rule, not } : null;
+  }
+  if (rule.field === 'age' && rule.op === 'between' && Array.isArray(rule.value)) {
+    const min = Number(rule.value[0]);
+    const max = Number(rule.value[1]);
+    if (Number.isFinite(min) && Number.isFinite(max)) {
+      if (min <= 5 && max <= 7 && !isLikelyPreschoolPolicy(policy)) return null;
+      if (max < 19 && !isLikelyChildOrCaregiverPolicy(policy)) return null;
+    }
+  }
+  return rule;
+}
+
+
+function inferDisplayDomain(policy = {}) {
+  if (policy.domain === '법령근거' || policy.legal_basis) return '법령근거';
+  const text = policyDisplayText(policy);
+  if (/월세|임대|주거|전세|보증금|공공주택|주택|입주|임차/.test(text)) return '주거';
+  if (/유아|영유아|유치원|어린이집|보육|교육|장학|학자금|수업료|학비|방과후|학교/.test(text)) return '교육';
+  if (/취업|구직|훈련|고용|일자리|채용|직업|근로|실업급여|국민취업지원/.test(text)) return '고용';
+  if (/청년|대학생|졸업|사회초년|자립준비/.test(text)) return '청년';
+  if (/의료|건강|병원|치료|요양|의료비/.test(text)) return '의료';
+  if (/금융|대출|신용|채무|이자|보증료|융자/.test(text)) return '금융';
+  return policy.domain || '생활지원';
+}
+
+function isBusinessOrProviderPolicyForDisplay(policy = {}) {
+  if (policy.domain === '법령근거' || policy.legal_basis) return false;
+  const text = policyDisplayText(policy);
+  return /(기업|단체|조합|협회|농가|어업인|어업경영체|원양선사|선박|어선|중소기업|소상공인|창업기업|수출업체|사업체|운영비|인건비|기관\s*종사|어린이집\s*(운영|종사|시설장)|학교\s*(운영|법인)|병원\s*(운영|기관)|설치\s*희망|허가를\s*받은\s*자)/.test(text);
+}
+
 function enhancePolicyForDisplay(policy = {}, lookup = null) {
   const next = sanitizeValue(policy || {});
+  next.domain = inferDisplayDomain(next);
   const current = sanitizePublicUrl(next.apply_url) || sanitizePublicUrl(next.detail_url) || sanitizePublicUrl(next.source?.original_url);
   const sourceId = String(next.source?.external_id || next.service_id || next['서비스ID'] || '').trim();
   const byId = sourceId ? lookup?.byId?.get(sourceId) : '';
@@ -350,6 +414,19 @@ function enhancePolicyForDisplay(policy = {}, lookup = null) {
     next.link_reason = next.link_reason || 'API 호출 URL은 사용자용 링크가 아니므로 숨겼습니다.';
   }
   if (next.source) next.source = { ...next.source, original_url: publicLink || '' };
+  if (next.rule) {
+    const sanitizedRule = sanitizeRuleForDisplay(next.rule, next);
+    next.rule = sanitizedRule || { all: [] };
+    if (JSON.stringify(sanitizedRule || {}) !== JSON.stringify(policy.rule || {})) {
+      next.rule_quality_warning = '정책 본문과 맞지 않는 자동 추출 연령 조건을 제거했습니다. 관리자 검수 전까지 보수적으로 판정합니다.';
+    }
+  }
+  if (isBusinessOrProviderPolicyForDisplay(next)) {
+    next.recommended_for_individuals = false;
+    next.recommendation_scope_reason = next.recommendation_scope_reason || '기관·사업자·단체 중심 정책으로 감지되어 개인 복지 추천 조합에서는 제외합니다.';
+  } else if (next.recommended_for_individuals !== false) {
+    next.recommended_for_individuals = true;
+  }
   if (next.domain === '법령근거' || next.legal_basis) {
     Object.assign(next, inferLegalReferenceDisplayInfo(next));
   }
@@ -512,13 +589,21 @@ export async function rebuildSearchIndex(storeDir) {
 }
 
 export async function storeSummary(storeDir) {
-  const [policies, drafts, snapshots, searchIndex, apiCache] = await Promise.all([
-    loadPolicies(storeDir), loadDrafts(storeDir), loadSnapshots(storeDir), loadSearchIndex(storeDir), loadApiCache(storeDir),
+  const [policies, drafts, snapshots, searchIndex, apiCache, collected] = await Promise.all([
+    loadPolicies(storeDir),
+    loadDrafts(storeDir),
+    loadSnapshots(storeDir),
+    loadSearchIndex(storeDir),
+    loadApiCache(storeDir),
+    loadCollectedPolicies(storeDir, { includePendingDrafts: true }),
   ]);
   return {
     storage: usePostgres() ? 'postgresql' : 'json-file',
     policies: policies.length,
-    legal_references: policies.filter((p) => p.domain === '법령근거').length,
+    collected_policies: collected.length,
+    active_individual_policies: collected.filter((p) => p.domain !== '법령근거' && p.recommended_for_individuals !== false).length,
+    excluded_non_individual_policies: collected.filter((p) => p.recommended_for_individuals === false).length,
+    legal_references: collected.filter((p) => p.domain === '법령근거').length,
     drafts: drafts.length,
     pending_drafts: drafts.filter((d) => d.status === 'pending_review').length,
     snapshots: snapshots.length,
