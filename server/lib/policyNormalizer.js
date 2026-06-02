@@ -49,7 +49,7 @@ const URL_PATTERN = /https?:\/\/[^\s<>)\]]+/gi;
 const SECRET_QUERY_PARAMS = new Set(['servicekey', 'oc', 'authkey', 'openapivlak', 'apikey', 'key']);
 
 const ID_KEYS = [
-  'id', '법령일련번호', 'MST', 'mst', '법령ID', 'serviceId', 'svcId', 'servId', 'wlfareInfoId', '정책ID', 'plcyNo', 'bizId', 'policyId',
+  'id', '법령일련번호', 'MST', 'mst', '법령ID', '서비스ID', '복지서비스ID', 'serviceId', 'svcId', 'servId', 'wlfareInfoId', '정책ID', 'plcyNo', 'bizId', 'policyId',
   'recrutPblancId', 'wantedAuthNo', 'wantedNo', 'pblancId',
 ];
 
@@ -294,6 +294,54 @@ function externalIdFromRecord(record = {}, text = '') {
   return String(pick(record, ID_KEYS) || sha256(text).slice(0, 16));
 }
 
+
+function normalizeComparableId(value = '') {
+  return String(value || '').trim().replace(/\s+/g, '').toLowerCase();
+}
+
+function numberFromStructuredValue(value) {
+  const num = Number(String(value ?? '').replace(/,/g, '').trim());
+  return Number.isFinite(num) ? num : null;
+}
+
+function structuredIdMatches(sourceRecord = {}, childRecord = {}) {
+  if (!childRecord || typeof childRecord !== 'object') return false;
+  const sourceId = normalizeComparableId(pick(sourceRecord, ['서비스ID', '복지서비스ID', 'serviceId', 'svcId', 'servId', 'wlfareInfoId', 'plcyNo', 'id']));
+  const childId = normalizeComparableId(pick(childRecord, ['서비스ID', '복지서비스ID', 'serviceId', 'svcId', 'servId', 'wlfareInfoId', 'plcyNo', 'id']));
+  return !sourceId || !childId || sourceId === childId;
+}
+
+function extractStructuredPolicySignals(record = {}) {
+  const support = record?._lifepass_support_conditions;
+  const detail = record?._lifepass_detail;
+  const structuredSources = [support, detail, record].filter((item) => item && typeof item === 'object' && structuredIdMatches(record, item));
+  const patch = {};
+  for (const item of structuredSources) {
+    const minAge = numberFromStructuredValue(item.JA0110 ?? item.minAge ?? item.ageMin ?? item['최소연령']);
+    const maxAge = numberFromStructuredValue(item.JA0111 ?? item.maxAge ?? item.ageMax ?? item['최대연령']);
+    if (minAge !== null && maxAge !== null && minAge >= 0 && maxAge >= minAge && maxAge <= 120) {
+      patch.age_range = [minAge, maxAge];
+      break;
+    }
+  }
+  return patch;
+}
+
+function mergePolicySignals(base = {}, patch = {}) {
+  return {
+    ...base,
+    ...Object.fromEntries(Object.entries(patch).filter(([, value]) => value !== undefined && value !== null)),
+    evidence: base.evidence || [],
+  };
+}
+
+function isBusinessOrProviderPolicyText(text = '', record = {}) {
+  const userType = pick(record, ['사용자구분', '_lifepass_detail.사용자구분']);
+  const t = `${userType}\n${text}`;
+  if (/(기업|단체|조합|협회|농가|어업인|어업경영체|원양선사|선박|어선|중소기업|소상공인|창업기업|수출업체|사업체|운영비|인건비|기관\s*종사|어린이집\s*(운영|종사|시설장)|학교\s*(운영|법인)|병원\s*(운영|기관)|설치\s*희망|허가를\s*받은\s*자)/.test(t)) return true;
+  return false;
+}
+
 function splitDocs(value = '', signalsDocs = []) {
   const docs = new Set(Array.isArray(signalsDocs) ? signalsDocs : []);
   String(value || '')
@@ -310,7 +358,7 @@ export function normalizePolicyRecord(record = {}, source = {}, context = {}) {
   const title = String(cleanGenericLawTitle(pickedTitle) || lawNameFromRecord(record) || '수집 정책').trim().slice(0, 120);
   const sourceId = source.id || context.source_id || 'unknown-source';
   const externalId = externalIdFromRecord(record, rawText);
-  const signals = extractPolicySignalsFromText(rawText);
+  const signals = mergePolicySignals(extractPolicySignalsFromText(rawText), extractStructuredPolicySignals(record));
   const rule = generateRuleFromPolicySignals(signals);
   const warningRule = generateWarningRuleFromPolicySignals(signals);
   const contentHash = sha256(rawText);
@@ -344,6 +392,8 @@ export function normalizePolicyRecord(record = {}, source = {}, context = {}) {
     conflicts_with: [],
     rule,
     warning_rule: warningRule,
+    recommended_for_individuals: !isBusinessOrProviderPolicyText(rawText, record),
+    recommendation_scope_reason: isBusinessOrProviderPolicyText(rawText, record) ? '기관·사업자·단체 중심 정책으로 감지되어 개인 복지 추천 조합에서는 제외합니다.' : '',
   };
   return {
     id: `${id}-${contentHash.slice(0, 8)}`,
@@ -376,6 +426,7 @@ function buildReviewReasons(signals, rule, record = {}, source = {}, publicLink 
   if (record._lifepass_error) reasons.push('수집 과정에서 오류 응답이 발생했습니다. 원문 URL과 인증키를 확인해야 합니다.');
   if (source.kind === 'legal_basis' || record?.legal_basis || record?.source?.kind === 'legal_basis') reasons.push('법령 데이터는 직접 지급 혜택이 아니라 어떤 정책 분야의 자격·지원 기준을 뒷받침하는 근거인지 검수해야 합니다.');
   if (!rule.all?.length) reasons.push('자동으로 생성된 자격 조건이 부족합니다.');
+  if (isBusinessOrProviderPolicyText(String(record?.rawText || record?.description || stringifyValue(record)), record)) reasons.push('기관·사업자·단체 중심 정책으로 감지되어 개인 추천 조합에서 제외하고 관리자 검수가 필요합니다.');
   if (!signals.support_amount) reasons.push('지원 금액을 확정하지 못했습니다.');
   if (!signals.income_percent_criteria?.length) reasons.push('소득 기준을 확정하지 못했습니다.');
   if (!signals.application_methods?.length && !pick(record, APPLY_KEYS)) reasons.push('신청 방법을 원문에서 다시 확인해야 합니다.');
