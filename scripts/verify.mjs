@@ -29,6 +29,7 @@ import { File } from 'node:buffer';
 import { normalizePolicyRecord } from '../server/lib/policyNormalizer.js';
 import { generateRuleFromPolicySignals } from '../server/lib/ruleGenerator.js';
 import { ingestPolicySources } from '../server/lib/ingestionRunner.js';
+import { withApiParams } from '../server/lib/httpClient.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -94,6 +95,16 @@ assert(httpSource.includes('parseXmlRecords'), 'XML 응답을 record로 변환�
 const runnerSource = fs.readFileSync(path.join(root, 'server/lib/ingestionRunner.js'), 'utf-8');
 assert(runnerSource.includes('enrichRecords') && runnerSource.includes('looksLikeDataPortalDocPage'), '상세조회 보강 또는 data.go.kr 문서 URL 방어 로직이 없음');
 assert(runnerSource.includes('getCachedApiResponse') && runnerSource.includes('saveApiResponse'), 'API 응답 캐시 사용 로직이 없음');
+
+const page2Url = withApiParams('https://example.test/list?pageNo=1&numOfRows=10&serviceKey=SECRET', {
+  authParam: 'serviceKey',
+  defaultParams: { pageNo: 1, numOfRows: 10 },
+  params: { pageNo: 2, numOfRows: 50 },
+});
+const page2 = new URL(page2Url);
+assert(page2.searchParams.get('pageNo') === '2', '기존 API URL의 pageNo가 런타임 페이지 값으로 덮어써지지 않음');
+assert(page2.searchParams.get('numOfRows') === '50', '기존 API URL의 numOfRows가 런타임 크기 값으로 덮어써지지 않음');
+assert(!page2Url.includes('pageNo=1'), '페이지네이션 URL이 1페이지로 고정될 위험이 있음');
 
 const pkg = readJson('package.json');
 for (const dep of ['react', 'react-dom', 'vite', 'pdfjs-dist', 'mammoth', 'tesseract.js', 'jszip', 'papaparse', 'dotenv', 'pg']) {
@@ -165,6 +176,28 @@ assert(policySignals.age_range?.[0] === 19 && policySignals.age_range?.[1] === 3
 assert(policySignals.rent_cap === 700000, `정책 월세 기준 추출 실패: ${policySignals.rent_cap}`);
 assert(policySignals.deposit_cap === 50000000, `정책 보증금 기준 추출 실패: ${policySignals.deposit_cap}`);
 assert(policySignals.support_amount === 200000, `정책 지원금 추출 실패: ${policySignals.support_amount}`);
+
+const mixedAmountPolicyText = `청년 월세 지원 사업
+지원 대상
+만 19세 이상 34세 이하
+월세 70만원 이하
+기준중위소득 60% 이하
+지원 내용
+월 최대 20만원씩 12개월 동안 총 240만원 지원
+신청 방법
+복지로 신청`;
+const mixedSignals = extractPolicySignalsFromText(mixedAmountPolicyText);
+assert(mixedSignals.support_amount === 200000, `월액+총액 혼합 문장에서 총액을 월액으로 오인함: ${mixedSignals.support_amount}`);
+assert(mixedSignals.support_period === 'monthly', `월 지원금 period 추출 실패: ${mixedSignals.support_period}`);
+assert(mixedSignals.rent_cap === 700000, `정책 대상 월세 상한 추출 실패: ${mixedSignals.rent_cap}`);
+const supportOnlyRentText = `월세 특별 지원 안내
+지원 내용
+월세 월 최대 20만원 지원
+신청 방법
+복지로 신청`;
+const supportOnlySignals = extractPolicySignalsFromText(supportOnlyRentText);
+assert(supportOnlySignals.rent_cap === null, `지원금 문장의 월세 금액을 임대료 상한으로 오인함: ${supportOnlySignals.rent_cap}`);
+assert(supportOnlySignals.support_amount === 200000, `지원내용의 월 지원금 추출 실패: ${supportOnlySignals.support_amount}`);
 assert(policySignals.income_percent_criteria.includes(60) && policySignals.income_percent_criteria.includes(100), '정책 소득 기준 추출 실패');
 const generatedRule = generateRuleFromPolicySignals(policySignals);
 assert(generatedRule.all.some((rule) => rule.field === 'age'), '정책 룰 생성기 연령 조건 누락');
@@ -184,6 +217,74 @@ const normalizedPublicLinkPolicy = normalizePolicyRecord(
   { id: 'verify-public-link-source', label: '공개 링크 검증 소스', strategy: 'official_api', priority: 90 },
 );
 assert(normalizedPublicLinkPolicy.benefit.apply_url === 'https://example.test/apply?ok=1', `공개 링크 정제 실패: ${normalizedPublicLinkPolicy.benefit.apply_url}`);
+
+
+const originalFetch = globalThis.fetch;
+const mockSource = {
+  id: 'verify-official-api',
+  label: '검증 공식 API',
+  strategy: 'official_api',
+  priority: 100,
+  apiBaseEnv: 'VERIFY_API_URL',
+  apiKeyEnv: 'VERIFY_API_KEY',
+  authParam: 'serviceKey',
+  defaultParams: { pageNo: 1, numOfRows: 1 },
+  pagination: { pageParam: 'pageNo', sizeParam: 'numOfRows', size: 1 },
+};
+const mockStore = fs.mkdtempSync(path.join(root, '.verify-mock-policy-store-'));
+const requestedUrls = [];
+globalThis.fetch = async (url) => {
+  requestedUrls.push(String(url));
+  const u = new URL(String(url));
+  const page = u.searchParams.get('pageNo');
+  return new Response(JSON.stringify({
+    response: {
+      header: { resultCode: '00', resultMsg: 'OK' },
+      body: {
+        items: {
+          item: [{
+            servId: `S${page}`,
+            servNm: `검증 정책 ${page}`,
+            servDgst: '청년 월세 지원',
+            sprtTrgtCn: '지원 대상\n만 19세 이상 34세 이하\n월세 70만원 이하\n기준중위소득 60% 이하',
+            supportContent: '지원 내용\n월 최대 20만원씩 12개월 동안 총 240만원 지원',
+            aplyMthdCn: '복지로 신청',
+            homepageUrl: `https://example.test/policy/${page}?serviceKey=SECRET&ok=1`,
+          }],
+        },
+      },
+    },
+  }), { status: 200, headers: { 'content-type': 'application/json' } });
+};
+const mockIngest = await ingestPolicySources({
+  sources: [mockSource],
+  config: { storeDir: mockStore, requestTimeoutMs: 2000, maxPagesPerSource: 2, maxDetailsPerSource: 0, policyRefreshTtlHours: 0 },
+  env: { VERIFY_API_URL: 'https://example.test/list?pageNo=1&numOfRows=1', VERIFY_API_KEY: 'SECRET' },
+  forceReview: true,
+  forceRefresh: true,
+});
+assert(requestedUrls.length === 2, `mock 공식 API 페이지 요청 수 불일치: ${requestedUrls.length}`);
+assert(new URL(requestedUrls[0]).searchParams.get('pageNo') === '1', 'mock 공식 API 1페이지 요청 실패');
+assert(new URL(requestedUrls[1]).searchParams.get('pageNo') === '2', 'mock 공식 API 2페이지 요청 실패');
+assert(mockIngest.drafts_created === 2, `mock 공식 API draft 생성 수 불일치: ${mockIngest.drafts_created}`);
+const mockDrafts = JSON.parse(fs.readFileSync(path.join(mockStore, 'review_drafts.json'), 'utf-8'));
+assert(mockDrafts.every((d) => d.benefit.estimated_monthly_value === 200000), 'mock 공식 API 지원 금액이 월 20만원으로 정규화되지 않음');
+assert(mockDrafts.every((d) => d.benefit.apply_url?.startsWith('https://example.test/policy/')), 'mock 공식 API 공개 링크 추출 실패');
+assert(mockDrafts.every((d) => !JSON.stringify(d.source).includes('SECRET')), 'mock 공식 API source에 인증키가 남아 있음');
+fs.rmSync(mockStore, { recursive: true, force: true });
+
+const errorStore = fs.mkdtempSync(path.join(root, '.verify-error-policy-store-'));
+globalThis.fetch = async () => new Response(JSON.stringify({ response: { header: { resultCode: '10', resultMsg: 'INVALID_REQUEST_PARAMETER_ERROR' }, body: {} } }), { status: 200, headers: { 'content-type': 'application/json' } });
+const errorIngest = await ingestPolicySources({
+  sources: [mockSource],
+  config: { storeDir: errorStore, requestTimeoutMs: 2000, maxPagesPerSource: 1, policyRefreshTtlHours: 0 },
+  env: { VERIFY_API_URL: 'https://example.test/list', VERIFY_API_KEY: 'SECRET' },
+  forceRefresh: true,
+});
+assert(errorIngest.drafts_created === 0, `API 내부 오류 응답이 정책 draft로 생성됨: ${errorIngest.drafts_created}`);
+assert(errorIngest.logs.some((line) => line.includes('collect-error') && line.includes('INVALID_REQUEST_PARAMETER_ERROR')), 'API 내부 오류가 수집 오류 로그로 분리되지 않음');
+fs.rmSync(errorStore, { recursive: true, force: true });
+globalThis.fetch = originalFetch;
 
 const tempStore = fs.mkdtempSync(path.join(root, '.verify-policy-store-'));
 const ingestResult = await ingestPolicySources({ config: { storeDir: tempStore, requestTimeoutMs: 2000 }, env: { ENABLE_BOKJIRO_CENTRAL: 'true', ENABLE_BOKJIRO_LOCAL: 'false', ENABLE_GOV24_BENEFITS: 'false', ENABLE_LOCAL_NOTICE_CRAWLER: 'false' } });

@@ -199,15 +199,44 @@ function hasLoanLikeBenefitText(text = '') {
 }
 
 function hasMonthlyBenefitContext(text = '') {
-  return /(월\s*(최대|한도|마다|별|액)?|매월|월별|개월\s*마다)/.test(String(text || ''));
+  return /(월\s*(최대|한도|마다|별|액|지원|지급)?|매월|월별|개월\s*마다|[/／]\s*월)/.test(String(text || ''));
 }
 
 function hasAnnualOrOneTimeContext(text = '') {
-  return /(연간|연\s*최대|매년|1년|전년도|장려금|일시|1회|한\s*번|포상금|컨설팅|까지\s*지원|한도)/.test(String(text || ''));
+  return /(연간|연\s*최대|매년|1년|12\s*개월|전년도|총액|총\s*지원|누적|장려금|일시|1회|한\s*번|포상금|컨설팅|까지\s*지원|한도)/.test(String(text || ''));
 }
 
 function isBusinessOrProviderSupport(text = '') {
   return /(시설장|종사자|기관|법인|단체|사업자|기업|소상공인|중소기업|중견기업|농가|어업인|수산업\s*경영인|공동생활가정|그룹홈|어린이집|학교|센터|운영비|인건비|컨설팅|사업체|창업기업)/.test(String(text || ''));
+}
+
+function amountContextForBenefit(line = '', match) {
+  const index = match?.index || 0;
+  const token = match?.[0] || '';
+  const before = line.slice(Math.max(0, index - 20), index);
+  const after = line.slice(index + token.length, Math.min(line.length, index + token.length + 24));
+  return { before, after, near: `${before}${token}${after}` };
+}
+
+function benefitAmountLooksMonthly(ctx = {}) {
+  return /(월\s*(?:최대|한도|액|지원|지급)?\s*$|매월\s*$|월별\s*$)/.test(ctx.before || '')
+    || /^\s*(?:씩\s*)?(?:매월|월별|[/／]\s*월|원?\s*[/／]\s*월|월\s*지급|월\s*지원)/.test(ctx.after || '')
+    || /월\s*마다|개월\s*마다/.test(`${ctx.before || ''}${ctx.after || ''}`);
+}
+
+function benefitAmountLooksAnnualOrOneTime(ctx = {}, amount = 0) {
+  const around = `${ctx.before || ''}${ctx.after || ''}`;
+  return /(연간|연\s*최대|매년|1년|12\s*개월|전년도|총액|총\s*지원|누적|일시|1회|한\s*번|까지\s*지원|한도)/.test(around)
+    || /총\s*$|최대\s*$|한도\s*$/.test(ctx.before || '')
+    || /^\s*(?:까지|한도|일시|1회|범위)/.test(ctx.after || '')
+    || amount >= 1500000;
+}
+
+function toBenefitMonthlyEquivalent(amount, line = '', ctx = {}) {
+  if (!amount) return 0;
+  if (benefitAmountLooksMonthly(ctx)) return amount;
+  if (benefitAmountLooksAnnualOrOneTime(ctx, amount) || (!hasMonthlyBenefitContext(line) && hasAnnualOrOneTimeContext(line))) return Math.round(amount / 12);
+  return amount;
 }
 
 function supportAmountFromText(text = '') {
@@ -221,10 +250,9 @@ function supportAmountFromText(text = '') {
     for (const match of line.matchAll(MONEY_AMOUNT_RE)) {
       const amount = moneyToInt(match[1], 'auto');
       if (!amount) continue;
-      const near = line.slice(Math.max(0, (match.index || 0) - 24), Math.min(line.length, (match.index || 0) + match[0].length + 24));
-      if (!/(지원|지급|급여|장려금|수당|교육비|훈련비|포상금|바우처|이용권|보조|환급)/.test(near) && /(소득|재산|자산|보증금|월세금|월세|임차보증금|총\s*급여|선정기준|기준|이하|미만|초과)/.test(near)) continue;
-      const monthly = hasMonthlyBenefitContext(line) ? amount : (hasAnnualOrOneTimeContext(line) || amount >= 1500000 ? Math.round(amount / 12) : amount);
-      candidates.push(monthly);
+      const ctx = amountContextForBenefit(line, match);
+      if (!/(지원|지급|급여|장려금|수당|교육비|훈련비|포상금|바우처|이용권|보조|환급)/.test(ctx.near) && /(소득|재산|자산|보증금|월세금|월세|임차보증금|총\s*급여|선정기준|기준|이하|미만|초과)/.test(ctx.near)) continue;
+      candidates.push(toBenefitMonthlyEquivalent(amount, line, ctx));
     }
   });
   return candidates.length ? Math.max(...candidates) : 0;
@@ -235,6 +263,7 @@ function normalizeBenefitMonthlyValue(benefit = {}) {
   const text = [benefit.name, benefit.description, benefit.target, benefit.source?.label].filter(Boolean).join('\n');
   if (hasLoanLikeBenefitText(text) || isBusinessOrProviderSupport(text)) return 0;
   if (raw > 0) {
+    if (['monthly', 'monthly_equivalent', 'unspecified_cash'].includes(benefit.estimated_value_period)) return raw;
     if (hasMonthlyBenefitContext(text)) return raw;
     if (hasAnnualOrOneTimeContext(text) || raw >= 1500000) return Math.round(raw / 12);
     return raw;

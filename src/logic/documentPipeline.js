@@ -281,18 +281,42 @@ function isCriteriaOnlyContext(text = '') {
 }
 
 function isMonthlyContext(text = '') {
-  return /(월\s*(최대|한도|마다|별|액)?|매월|월별|개월\s*마다)/.test(String(text || ''));
+  return /(월\s*(최대|한도|마다|별|액|지원|지급)?|매월|월별|개월\s*마다|[/／]\s*월)/.test(String(text || ''));
 }
 
 function isAnnualOrOneTimeContext(text = '') {
-  return /(연간|연\s*최대|매년|1년|전년도|장려금|일시|1회|한\s*번|포상금|컨설팅|까지\s*지원|한도)/.test(String(text || ''));
+  return /(연간|연\s*최대|매년|1년|12\s*개월|전년도|총액|총\s*지원|누적|장려금|일시|1회|한\s*번|포상금|컨설팅|까지\s*지원|한도)/.test(String(text || ''));
 }
 
-function toMonthlyEquivalent(amount, context = '') {
-  if (!amount) return 0;
-  if (isMonthlyContext(context)) return amount;
-  if (isAnnualOrOneTimeContext(context) || amount >= 1500000) return Math.round(amount / 12);
-  return amount;
+function amountContext(line = '', match) {
+  const index = match?.index || 0;
+  const token = match?.[0] || '';
+  const before = line.slice(Math.max(0, index - 20), index);
+  const after = line.slice(index + token.length, Math.min(line.length, index + token.length + 24));
+  return { before, after, near: `${before}${token}${after}` };
+}
+
+function amountLooksMonthly(ctx = {}) {
+  return /(월\s*(?:최대|한도|액|지원|지급)?\s*$|매월\s*$|월별\s*$)/.test(ctx.before || '')
+    || /^\s*(?:씩\s*)?(?:매월|월별|[/／]\s*월|원?\s*[/／]\s*월|월\s*지급|월\s*지원)/.test(ctx.after || '')
+    || /월\s*마다|개월\s*마다/.test(`${ctx.before || ''}${ctx.after || ''}`);
+}
+
+function amountLooksAnnualOrOneTime(ctx = {}, amount = 0) {
+  const around = `${ctx.before || ''}${ctx.after || ''}`;
+  return /(연간|연\s*최대|매년|1년|12\s*개월|전년도|총액|총\s*지원|누적|일시|1회|한\s*번|까지\s*지원|한도)/.test(around)
+    || /총\s*$|최대\s*$|한도\s*$/.test(ctx.before || '')
+    || /^\s*(?:까지|한도|일시|1회|범위)/.test(ctx.after || '')
+    || amount >= 1500000;
+}
+
+function toMonthlyEquivalent(amount, line = '', ctx = {}) {
+  if (!amount) return { monthly: 0, period: 'unknown' };
+  if (amountLooksMonthly(ctx)) return { monthly: amount, period: 'monthly' };
+  if (amountLooksAnnualOrOneTime(ctx, amount) || (!isMonthlyContext(line) && isAnnualOrOneTimeContext(line))) {
+    return { monthly: Math.round(amount / 12), period: 'monthly_equivalent' };
+  }
+  return { monthly: amount, period: 'unspecified_cash' };
 }
 
 function extractSupportAmountCandidate(text = '') {
@@ -314,8 +338,9 @@ function extractSupportAmountCandidate(text = '') {
       const end = Math.min(line.length, (match.index || 0) + match[0].length + 24);
       const near = line.slice(start, end);
       if (isCriteriaOnlyContext(near)) continue;
-      const monthly = toMonthlyEquivalent(amount, line);
-      candidates.push({ amount, monthly, source: line, confidence: isMonthlyContext(line) ? 0.9 : 0.78 });
+      const ctx = amountContext(line, match);
+      const { monthly, period } = toMonthlyEquivalent(amount, line, ctx);
+      candidates.push({ amount, monthly, period, source: line, confidence: period === 'monthly' ? 0.9 : 0.78 });
     }
   });
   return candidates.sort((a, b) => b.monthly - a.monthly)[0] || null;
@@ -418,12 +443,20 @@ export function extractPolicySignalsFromText(text = '') {
     result.age_range = [Number(ageRange.match[1]), Number(ageRange.match[2])].sort((a, b) => a - b);
     evidence.push(evidenceItem('age_range', '연령 기준', `${result.age_range[0]}~${result.age_range[1]}세`, ageRange.source, 0.9));
   }
-  const rent = criteriaText.match(new RegExp(`(?:월세|임대료|차임)[^\n]{0,18}?${MONEY_AMOUNT_RE.source}\\s*(?:이하|까지|미만)?`));
+  const hasScopedEligibility = Boolean(eligibilityText);
+  const capSuffix = '(?:이하|까지|미만|초과하지\\s*않|넘지\\s*않)';
+  const rentPattern = hasScopedEligibility
+    ? `(?:월세|임대료|차임)[^\n]{0,18}?${MONEY_AMOUNT_RE.source}\\s*(?:${capSuffix})?`
+    : `(?:월세|임대료|차임)[^\n]{0,18}?${MONEY_AMOUNT_RE.source}\\s*${capSuffix}`;
+  const rent = criteriaText.match(new RegExp(rentPattern));
   if (rent) {
     result.rent_cap = moneyToWon(rent[1], 'auto');
     evidence.push(evidenceItem('rent_cap', '월세 기준', result.rent_cap, rent[0], 0.88));
   }
-  const deposit = criteriaText.match(new RegExp(`(?:보증금|임차보증금|임대보증금)[^\n]{0,18}?${MONEY_AMOUNT_RE.source}\\s*(?:이하|까지|미만)?`));
+  const depositPattern = hasScopedEligibility
+    ? `(?:보증금|임차보증금|임대보증금)[^\n]{0,18}?${MONEY_AMOUNT_RE.source}\\s*(?:${capSuffix})?`
+    : `(?:보증금|임차보증금|임대보증금)[^\n]{0,18}?${MONEY_AMOUNT_RE.source}\\s*${capSuffix}`;
+  const deposit = criteriaText.match(new RegExp(depositPattern));
   if (deposit) {
     result.deposit_cap = moneyToWon(deposit[1], 'auto');
     evidence.push(evidenceItem('deposit_cap', '보증금 기준', result.deposit_cap, deposit[0], 0.88));
@@ -431,10 +464,10 @@ export function extractPolicySignalsFromText(text = '') {
   const support = extractSupportAmountCandidate(supportText);
   if (support) {
     result.support_amount = support.monthly;
-    result.support_period = isMonthlyContext(support.source) ? 'monthly' : 'monthly_equivalent';
+    result.support_period = support.period || (isMonthlyContext(support.source) ? 'monthly' : 'monthly_equivalent');
     evidence.push(evidenceItem('support_amount', '월 환산 지원금', result.support_amount, support.source, support.confidence));
   }
-  for (const match of criteriaText.matchAll(/기준\s*중위소득\s*(\d{1,3})\s*%\s*이하/g)) {
+  for (const match of criteriaText.matchAll(/(?:기준\s*)?중위소득\s*(\d{1,3})\s*%\s*이하/g)) {
     const value = Number(match[1]);
     if (!result.income_percent_criteria.includes(value)) result.income_percent_criteria.push(value);
     evidence.push(evidenceItem('income_percent_criteria', '소득 기준', `${value}% 이하`, match[0], 0.86));

@@ -64,11 +64,50 @@ function normalizeComparableId(value = '') {
 
 function recordsContainApiError(records = []) {
   return records.find((record) => {
-    const code = String(record?.resultCode || record?.resultCd || record?.header?.resultCode || '').trim();
-    const message = String(record?.resultMessage || record?.resultMsg || record?.header?.resultMsg || record?.errorMsg || '').trim();
+    const code = String(
+      record?.resultCode
+      || record?.resultCd
+      || record?.header?.resultCode
+      || record?.response?.header?.resultCode
+      || record?.response?.header?.resultCd
+      || '',
+    ).trim();
+    const message = String(
+      record?.resultMessage
+      || record?.resultMsg
+      || record?.header?.resultMsg
+      || record?.header?.resultMessage
+      || record?.response?.header?.resultMsg
+      || record?.response?.header?.resultMessage
+      || record?.errorMsg
+      || '',
+    ).trim();
     if (!code && !message) return false;
     return !['00', '0000', '0', 'success', 'ok'].includes(code.toLowerCase()) || /error|invalid|fail|exception|오류|실패|에러/i.test(message);
   }) || null;
+}
+
+
+function apiErrorMessage(record = {}) {
+  const code = String(
+    record?.resultCode
+    || record?.resultCd
+    || record?.header?.resultCode
+    || record?.response?.header?.resultCode
+    || record?.response?.header?.resultCd
+    || '',
+  ).trim();
+  const message = String(
+    record?.resultMessage
+    || record?.resultMsg
+    || record?.header?.resultMsg
+    || record?.header?.resultMessage
+    || record?.response?.header?.resultMsg
+    || record?.response?.header?.resultMessage
+    || record?.errorMsg
+    || 'API 오류 응답',
+  ).trim();
+  return `${code} ${message}`.trim();
 }
 
 function inferMimeFromUrl(url = '', contentType = '') {
@@ -261,25 +300,29 @@ async function collectOfficialApi(source, config, env = process.env) {
   const urls = pageUrls(source, baseUrl, env, config);
   const records = [];
   const fetchedUrls = [];
-  const collectionWarnings = [];
+  const errors = [];
   for (const url of urls) {
     try {
       const result = await fetchApiRecords(url, config, { forceRefresh: config.forceRefresh });
       fetchedUrls.push(redactUrlCredentials(result.redactedUrl || result.url));
       const apiError = recordsContainApiError(result.records);
       if (apiError) {
-        collectionWarnings.push(`${apiError.resultCode || ''} ${apiError.resultMessage || apiError.resultMsg || 'API 오류 응답'}`.trim());
+        errors.push({
+          source_id: source.id,
+          message: apiErrorMessage(apiError),
+          url: redactUrlCredentials(result.url || url),
+        });
         break;
       }
       records.push(...result.records);
       if (!result.records.length) break;
     } catch (error) {
-      collectionWarnings.push(redactUrlCredentials(error.message));
+      errors.push({ source_id: source.id, message: redactUrlCredentials(error.message), url: redactUrlCredentials(url) });
       break;
     }
   }
   const enriched = await enrichRecords(records, source, env, config);
-  return { source: { ...source, lastFetchedUrl: fetchedUrls[0] || redactUrlCredentials(urls[0]), fetchedUrls, collectionWarnings }, records: enriched, skipped: false, warnings: collectionWarnings };
+  return { source: { ...source, lastFetchedUrl: fetchedUrls[0] || redactUrlCredentials(urls[0]), fetchedUrls }, records: enriched, skipped: false, errors };
 }
 
 async function collectAllowlistCrawler(source, config, env = process.env) {
@@ -288,6 +331,7 @@ async function collectAllowlistCrawler(source, config, env = process.env) {
     return { source, records: [], skipped: true, reason: `${source.urlListEnv} 환경변수가 없어 보조 크롤링을 건너뜁니다.` };
   }
   const records = [];
+  const errors = [];
   for (const url of urls) {
     try {
       const { body, contentType } = await fetchWithTimeout(url, { timeoutMs: config.requestTimeoutMs, asBuffer: true });
@@ -296,10 +340,10 @@ async function collectAllowlistCrawler(source, config, env = process.env) {
       const text = extracted.text || '';
       records.push({ title: text.split(/\r?\n/).find(Boolean) || url, description: text, url, parser: extracted.parser });
     } catch (error) {
-      records.push({ title: `${source.label} 수집 오류`, description: redactUrlCredentials(error.message), url: redactUrlCredentials(url), _lifepass_error: true });
+      errors.push({ source_id: source.id, message: redactUrlCredentials(error.message), url: redactUrlCredentials(url) });
     }
   }
-  return { source, records, skipped: false };
+  return { source, records, skipped: false, errors };
 }
 
 async function collectSource(source, config, env = process.env) {
@@ -326,8 +370,14 @@ export async function ingestPolicySources(options = {}) {
         continue;
       }
       logs.push(`[collect] ${source.label}: ${collection.records.length}건`);
+      for (const error of collection.errors || []) {
+        logs.push(`[collect-error] ${source.label}: ${error.message} (${error.url || 'url 없음'})`);
+      }
       for (const record of collection.records) {
-        if (record?._lifepass_error) continue;
+        if (record?._lifepass_error) {
+          logs.push(`[collect-error] ${source.label}: ${record.description || '수집 오류'} (${record.url || 'url 없음'})`);
+          continue;
+        }
         const normalized = normalizePolicyRecord(record, collection.source);
         const externalId = normalized.source.external_id;
         const contentHash = normalized.ingestion.content_hash || sha256(normalized.rawText);
