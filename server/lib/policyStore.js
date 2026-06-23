@@ -460,7 +460,7 @@ function draftToCollectedPolicy(draft = {}) {
 }
 
 export async function loadCollectedPolicies(storeDir, options = {}) {
-  const { includePendingDrafts = true } = options;
+  const { includePendingDrafts = false } = options;
   const [policies, drafts, apiCache] = await Promise.all([loadPolicies(storeDir), loadDrafts(storeDir), loadApiCache(storeDir)]);
   const lookup = buildPublicLinkLookup(apiCache);
   const byId = new Map();
