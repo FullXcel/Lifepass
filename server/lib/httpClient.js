@@ -51,8 +51,18 @@ export function withApiParams(baseUrl, options = {}) {
   } = options;
   const url = new URL(baseUrl);
   if (key && authParam && !url.searchParams.has(authParam)) url.searchParams.set(authParam, key);
-  for (const [name, value] of Object.entries({ ...defaultParams, ...params })) {
+
+  // Endpoint URLs supplied through .env sometimes already include sample
+  // pagination values such as pageNo=1. Defaults should preserve those values,
+  // but the explicit runtime params for a page/detail request must override them.
+  // Otherwise every page request can silently fetch page 1 again.
+  for (const [name, value] of Object.entries(defaultParams)) {
     if (value !== undefined && value !== null && value !== '' && !url.searchParams.has(name)) {
+      url.searchParams.set(name, value);
+    }
+  }
+  for (const [name, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null && value !== '') {
       url.searchParams.set(name, value);
     }
   }
