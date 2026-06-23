@@ -70,7 +70,7 @@ LifePass는 이런 문제를 줄이기 위해 다음 흐름을 제공합니다.
 
 문서에서 읽은 정보가 틀렸거나 빠졌다면, 화면의 직접 수정 영역에서 값을 고칠 수 있습니다.
 
-> 현재 버전에서는 별도의 텍스트 직접 입력창을 두지 않습니다. 사용자가 문서를 올린 뒤, 잘못 읽힌 정보나 빠진 정보는 바로 아래의 수치·상태 수정 영역에서 고치는 방식입니다. 입력 경로를 단순화해 사용자가 어떤 값이 최종 판단에 쓰이는지 더 분명하게 확인할 수 있도록 했습니다.
+> 현재 버전에서는 자유 텍스트 직접 입력과 문서 업로드를 모두 지원합니다. 사용자는 “만 28세, 서울 거주, 월세 45만 원…”처럼 자연어로 상황을 적거나, 문서를 올린 뒤 추출된 값을 수치·상태 수정 영역에서 다시 확인할 수 있습니다. 최종 판단에 쓰이는 값은 화면에 노출해 사용자가 직접 고칠 수 있도록 했습니다.
 
 ---
 
@@ -181,7 +181,21 @@ HTTP 요청이 성공하더라도 API 내부 응답 코드가 오류이거나 �
 
 ---
 
-## 5. 실행 전 준비물
+## 5. 배포 전 보안 체크
+
+공개 저장소나 제출용 ZIP에는 실제 API 키가 들어 있는 `.env`를 포함하지 마세요. 이미 포함해 공유했다면 해당 키를 폐기하고 새로 발급받아야 합니다.
+
+관리자 API는 `LIFEPASS_ADMIN_TOKEN`이 설정되어 있어야 사용할 수 있습니다. 토큰이 비어 있으면 관리자 검수·수집 실행 API는 차단됩니다. 검수 대기 정책 후보는 사용자 추천 결과에 섞이지 않고, 관리자가 승인한 정책만 실제 혜택 매칭에 사용됩니다.
+
+배포 전 다음 명령을 실행해 기본 동작과 보안 포장 상태를 확인하세요.
+
+```bash
+npm run verify
+npm run verify:security
+```
+---
+
+## 6. 실행 전 준비물
 
 프로젝트를 실행하려면 다음이 필요합니다.
 
@@ -190,19 +204,21 @@ HTTP 요청이 성공하더라도 API 내부 응답 코드가 오류이거나 �
 - 프로젝트 파일 전체
 - 외부 정책 자동 수집을 쓰려면 공식 API 인증키
 
-처음 받은 프로젝트에는 `node_modules`가 없거나, 운영체제에 맞지 않는 `node_modules`가 들어 있을 수 있습니다. 이 경우 반드시 다시 설치하세요.
+제출용 ZIP에는 `.env`, `.git`, `node_modules`, `dist`, 런타임 수집 데이터가 포함되지 않아야 합니다. 처음 받은 프로젝트에는 `node_modules`가 없거나, 운영체제에 맞지 않는 `node_modules`가 들어 있을 수 있습니다. 이 경우 반드시 다시 설치하세요.
 
 ```bash
 npm install
+cp .env.example .env
+# .env의 LIFEPASS_ADMIN_TOKEN과 필요한 공식 API 키를 실제 값으로 교체
 ```
 
 ---
 
-## 6. 실행 방법
+## 7. 실행 방법
 
 LifePass AI는 화면을 보여주는 프론트엔드와 정책 수집·검색을 담당하는 백엔드 서버를 함께 사용할 수 있습니다.
 
-### 6.1 프론트엔드만 실행하기
+### 7.1 프론트엔드만 실행하기
 
 기본 데모 정책과 문서 파싱 기능만 빠르게 확인하려면 다음 명령을 실행합니다.
 
@@ -220,7 +236,7 @@ http://localhost:5173
 
 ---
 
-### 6.2 백엔드 서버 함께 실행하기
+### 7.2 백엔드 서버 함께 실행하기
 
 정책 자동 수집, 정책 검색, 관리자 검수 기능을 함께 보려면 터미널을 두 개 열어야 합니다.
 
@@ -252,7 +268,7 @@ http://localhost:8787
 
 ---
 
-### 6.3 정책을 한 번 수집하기
+### 7.3 정책을 한 번 수집하기
 
 외부 공식 API 정보를 설정해 두었다면 다음 명령으로 정책 수집을 한 번 실행할 수 있습니다.
 
@@ -273,7 +289,7 @@ npm run ingest:once
 
 ---
 
-### 6.4 정책을 주기적으로 수집하기
+### 7.4 정책을 주기적으로 수집하기
 
 운영 중에 정책 정보를 계속 갱신하고 싶다면 다음 명령을 실행합니다.
 
@@ -287,7 +303,7 @@ npm run ingest:schedule
 
 ---
 
-### 6.5 검증하기
+### 7.5 검증하기
 
 프로젝트의 핵심 로직이 깨지지 않았는지 확인하려면 다음 명령을 실행합니다.
 
@@ -306,7 +322,7 @@ npm run verify
 
 ---
 
-### 6.6 배포용 파일 만들기
+### 7.6 배포용 파일 만들기
 
 프론트엔드 배포 파일을 만들려면 다음 명령을 실행합니다.
 
@@ -324,7 +340,7 @@ npm run preview
 
 ---
 
-## 7. 환경변수 설정
+## 8. 환경변수 설정
 
 외부 정책 자동 수집 기능을 사용하려면 `.env` 파일을 설정해야 합니다.
 
@@ -336,23 +352,27 @@ cp .env.example .env
 
 그다음 `.env` 파일을 열어 필요한 값을 입력합니다.
 
-### 7.1 백엔드 서버 설정
+### 8.1 백엔드 서버 설정
 
 ```env
 LIFEPASS_API_HOST=0.0.0.0
 LIFEPASS_API_PORT=8787
 LIFEPASS_CORS_ORIGIN=http://localhost:5173
+LIFEPASS_REQUIRE_ADMIN_TOKEN=true
+LIFEPASS_MAX_BODY_BYTES=1048576
 ```
 
 의미는 다음과 같습니다.
 
 - `LIFEPASS_API_HOST`: 백엔드 서버를 어느 주소에서 열지 정합니다.
 - `LIFEPASS_API_PORT`: 백엔드 서버 포트입니다. 기본값은 8787입니다.
-- `LIFEPASS_CORS_ORIGIN`: 프론트엔드가 백엔드에 접근할 수 있도록 허용할 주소입니다.
+- `LIFEPASS_CORS_ORIGIN`: 프론트엔드가 백엔드에 접근할 수 있도록 허용할 주소입니다. 여러 개면 쉼표로 구분합니다.
+- `LIFEPASS_REQUIRE_ADMIN_TOKEN`: 토큰이 비어 있을 때 관리자 API를 차단할지 정합니다. 운영에서는 `true`로 둡니다.
+- `LIFEPASS_MAX_BODY_BYTES`: 관리자 API 요청 본문 크기 제한입니다.
 
 ---
 
-### 7.2 관리자 토큰
+### 8.2 관리자 토큰
 
 ```env
 LIFEPASS_ADMIN_TOKEN=change-me-before-production
@@ -360,11 +380,11 @@ LIFEPASS_ADMIN_TOKEN=change-me-before-production
 
 관리자 토큰은 정책 수집 실행, 정책 후보 승인, 정책 후보 반려 같은 관리자 기능을 보호하기 위한 값입니다.
 
-실제 운영에서는 반드시 예측하기 어려운 긴 문자열로 바꾸어야 합니다. 비워두거나 기본값 그대로 두면 다른 사람이 관리자 API를 호출할 위험이 있습니다.
+실제 운영에서는 반드시 예측하기 어려운 긴 문자열로 바꾸어야 합니다. 현재 수정본은 토큰이 비어 있으면 관리자 API를 차단합니다. 공개 저장소나 제출용 ZIP에는 실제 토큰이 들어 있는 `.env`를 포함하지 마세요.
 
 ---
 
-### 7.3 정책 저장 위치와 PostgreSQL 캐시
+### 8.3 정책 저장 위치와 PostgreSQL 캐시
 
 ```env
 DATABASE_URL=postgresql://lifepass:lifepass@localhost:5432/lifepass
@@ -376,7 +396,7 @@ POLICY_REFRESH_TTL_HOURS=24
 
 ---
 
-### 7.4 정책 수집 간격
+### 8.4 정책 수집 간격
 
 ```env
 POLICY_SCHEDULER_INTERVAL_MS=21600000
@@ -388,14 +408,14 @@ POLICY_SCHEDULER_INTERVAL_MS=21600000
 
 ---
 
-### 7.5 복지로·정부24·공공데이터포털 API 설정
+### 8.5 복지로·정부24·공공데이터포털 API 설정
 
 ```env
 BOKJIRO_SERVICE_KEY=
 BOKJIRO_LOCAL_SERVICE_KEY=
 
 BOKJIRO_CENTRAL_API_URL=http://apis.data.go.kr/B554287/NationalWelfareInformationsV001/NationalWelfarelistV001
-BOKJIRO_CENTRAL_DETAIL_API_URL=http://apis.data.go.kr/B554287/NationalWelfareInformationsV001/NationalWelfarelistV001
+BOKJIRO_CENTRAL_DETAIL_API_URL=http://apis.data.go.kr/B554287/NationalWelfareInformationsV001/NationalWelfaredetailedV001
 
 BOKJIRO_LOCAL_API_URL=http://apis.data.go.kr/B554287/LocalGovernmentWelfareInformations/LcgvWelfarelist
 BOKJIRO_LOCAL_DETAIL_API_URL=http://apis.data.go.kr/B554287/LocalGovernmentWelfareInformations/LcgvWelfaredetailed
@@ -408,7 +428,7 @@ GOV24_BENEFIT_API_URL=
 
 - `BOKJIRO_SERVICE_KEY`: 복지로 또는 공공데이터포털의 복지서비스 API를 호출하기 위한 인증키입니다.
 - `BOKJIRO_CENTRAL_API_URL`: 중앙부처 복지서비스 정보를 가져올 API 주소입니다.
-- `BOKJIRO_CENTRAL_DETAIL_API_URL`: 중앙부처 복지서비스 상세조회를 위한 주소입니다. 현재 코드는 중앙부처 API에서 callTp=L/D 파라미터로 목록/상세를 구분하므로 목록 URL과 같은 endpoint를 사용할 수 있습니다.
+- `BOKJIRO_CENTRAL_DETAIL_API_URL`: 중앙부처 복지서비스 상세조회를 위한 주소입니다. 목록 URL을 재사용하지 않고 상세조회 전용 URL을 별도로 설정합니다.
 - `BOKJIRO_LOCAL_API_URL`: 지자체 복지서비스 정보를 가져올 API 주소입니다.
 - `BOKJIRO_LOCAL_DETAIL_API_URL`: 지자체 복지서비스 상세조회를 위한 주소입니다. 목록조회는 LcgvWelfarelist, 상세조회는 LcgvWelfaredetailed를 사용합니다.
 - `GOV24_SERVICE_KEY`: 정부24 또는 공공서비스 혜택 정보 API를 호출하기 위한 인증키입니다.
@@ -418,7 +438,7 @@ GOV24_BENEFIT_API_URL=
 
 ---
 
-### 7.6 국가법령정보센터 법령 데이터 설정
+### 8.6 국가법령정보센터 법령 데이터 설정
 
 ```env
 ENABLE_LAW_WELFARE_ACTS=true
@@ -432,7 +452,7 @@ LAW_POLICY_QUERIES=복지,기초생활보장,청년,주거급여,고용보험
 
 ---
 
-### 7.7 수집 소스 사용 여부
+### 8.7 수집 소스 사용 여부
 
 ```env
 ENABLE_BOKJIRO_CENTRAL=true
@@ -449,7 +469,7 @@ API 키나 URL이 아직 없다면 해당 값을 `false`로 두는 것이 좋습
 
 ---
 
-### 7.8 지자체 공고 보조 수집
+### 8.8 지자체 공고 보조 수집
 
 ```env
 ENABLE_LOCAL_NOTICE_CRAWLER=false
@@ -469,9 +489,9 @@ LOCAL_NOTICE_URLS=
 
 ---
 
-## 8. 실제 사용 흐름 예시
+## 9. 실제 사용 흐름 예시
 
-### 8.1 일반 사용자 흐름
+### 9.1 일반 사용자 흐름
 
 1. 사용자가 LifePass AI 화면을 엽니다.
 2. `내 정보 불러오기`에서 상담 메모나 자신의 상황이 담긴 문서를 올립니다.
@@ -484,7 +504,7 @@ LOCAL_NOTICE_URLS=
 
 ---
 
-### 8.2 정책 관리자 흐름
+### 9.2 정책 관리자 흐름
 
 1. `.env`에 공식 API 키, 국가법령정보센터 OC 값, 필요 시 `DATABASE_URL`을 설정합니다.
 2. `npm run server`로 백엔드 서버를 실행합니다.
@@ -496,7 +516,7 @@ LOCAL_NOTICE_URLS=
 
 ---
 
-## 9. 주요 명령어 요약
+## 10. 주요 명령어 요약
 
 | 명령어 | 역할 |
 |---|---|
@@ -511,7 +531,7 @@ LOCAL_NOTICE_URLS=
 
 ---
 
-## 10. 폴더 구조
+## 11. 폴더 구조
 
 ```text
 lifepass_react_lite/
@@ -564,7 +584,7 @@ lifepass_react_lite/
 
 ---
 
-## 11. Git에 올리지 않아야 하는 파일
+## 12. Git에 올리지 않아야 하는 파일
 
 다음 파일과 폴더는 보통 Git에 올리지 않습니다.
 
@@ -588,7 +608,7 @@ lifepass_react_lite/
 
 ---
 
-## 12. 현재 버전의 한계
+## 13. 현재 버전의 한계
 
 LifePass AI는 복지 정책 탐색과 신청 준비를 돕는 플랫폼이지만, 다음 한계가 있습니다.
 
@@ -602,7 +622,7 @@ LifePass AI는 복지 정책 탐색과 신청 준비를 돕는 플랫폼이지�
 - 자동 추출된 조건이 정책명이나 정책 분야와 명백히 맞지 않는 경우, LifePass AI는 해당 조건을 그대로 판정에 사용하지 않고 확인 필요 상태로 보류할 수 있습니다.
 ---
 
-## 13. LifePass의 차별점
+## 14. LifePass의 차별점
 
 LifePass AI는 단순한 복지 정보 검색 서비스가 아니라, 사용자의 상황 변화와 신청 준비 과정을 함께 다루는 것을 목표로 합니다.
 
@@ -625,7 +645,7 @@ LifePass AI는 단순한 복지 정보 검색 서비스가 아니라, 사용자�
 
 ---
 
-## 14. 빠른 시작 요약
+## 15. 빠른 시작 요약
 
 그냥 dev, server, ingest을 한 번에 하고 싶다면(fe, be 동시 가동, 정책 자동 수집 및 갱신) 아래의 명령어 하나만 입력하면 됩니다.
 
@@ -671,7 +691,7 @@ npm run build
 
 ---
 
-## 15. 최종 안내
+## 16. 최종 안내
 
 LifePass AI는 사용자가 자신의 상황을 더 쉽게 정리하고, 받을 수 있는 혜택과 신청 준비 방향을 미리 확인하도록 돕는 도구입니다. 다만 복지 정책은 실제 신청 시점, 거주지, 가구 구성, 소득 인정 방식, 재산 기준, 제출 서류에 따라 결과가 달라질 수 있습니다.
 
