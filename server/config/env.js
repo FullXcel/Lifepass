@@ -38,11 +38,13 @@ export function getServerConfig(env = process.env) {
     port: envNumber('LIFEPASS_API_PORT', 8787, env),
     host: env.LIFEPASS_API_HOST || '0.0.0.0',
     adminToken: env.LIFEPASS_ADMIN_TOKEN || '',
+    requireAdminToken: envBool('LIFEPASS_REQUIRE_ADMIN_TOKEN', true, env),
+    maxBodyBytes: envNumber('LIFEPASS_MAX_BODY_BYTES', 1024 * 1024, env),
     requestTimeoutMs: envNumber('POLICY_FETCH_TIMEOUT_MS', 15000, env),
     schedulerIntervalMs: envNumber('POLICY_SCHEDULER_INTERVAL_MS', 6 * 60 * 60 * 1000, env),
     maxPagesPerSource: envNumber('POLICY_MAX_PAGES_PER_SOURCE', 3, env),
     maxDetailsPerSource: envNumber('POLICY_MAX_DETAILS_PER_SOURCE', 25, env),
-    corsOrigin: env.LIFEPASS_CORS_ORIGIN || '*',
+    corsOrigin: env.LIFEPASS_CORS_ORIGIN || 'http://localhost:5173',
     allowCrawler: envBool('ENABLE_LOCAL_NOTICE_CRAWLER', false, env),
     dryRun: envBool('POLICY_INGEST_DRY_RUN', false, env),
   };
@@ -86,8 +88,19 @@ export function getPolicyApiConfig(env = process.env) {
   };
 }
 
+export function getRequestToken(req) {
+  return String(req.headers['x-admin-token'] || req.headers.authorization?.replace(/^Bearer\s+/i, '') || '').trim();
+}
+
 export function assertAdmin(req, config = getServerConfig()) {
-  if (!config.adminToken) return true;
-  const token = req.headers['x-admin-token'] || req.headers.authorization?.replace(/^Bearer\s+/i, '');
-  return token === config.adminToken;
+  if (!config.adminToken) return !config.requireAdminToken;
+  const token = getRequestToken(req);
+  return token && token === config.adminToken;
+}
+
+export function adminAuthStatus(config = getServerConfig()) {
+  return {
+    admin_token_configured: Boolean(config.adminToken),
+    admin_token_required: Boolean(config.requireAdminToken),
+  };
 }
