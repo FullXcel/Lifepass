@@ -717,7 +717,9 @@ export default function App() {
   const [collectedPolicies, setCollectedPolicies] = useState([]);
   const [legalReferences, setLegalReferences] = useState([]);
   const activeExternalPolicies = useMemo(() => {
-    return collectedPolicies
+    // 사용자 추천에는 검수 완료된 승인 정책만 사용한다.
+    // 검수 대기 초안은 관리자 화면에는 보이지만 실제 혜택 추천에는 섞지 않는다.
+    return approvedPolicies
       .filter(
         (policy) => policy?.id && policy?.name && policy?.domain !== '법령근거' && policy?.recommended_for_individuals !== false,
       )
@@ -731,7 +733,7 @@ export default function App() {
           : [],
         rule: policy.rule || { all: [] },
       }));
-  }, [collectedPolicies]);
+  }, [approvedPolicies]);
   const usingFallbackPolicies = activeExternalPolicies.length === 0;
   const usingPendingCollectedPolicies = activeExternalPolicies.some((policy) => policy.pending_review || policy.review_status === "pending_review");
   const benefits = useMemo(() => {
@@ -757,7 +759,7 @@ export default function App() {
   const [policyAdminLoading, setPolicyAdminLoading] = useState(false);
   const [policyAdminMessage, setPolicyAdminMessage] = useState("");
   const [adminToken, setAdminToken] = useState(
-    () => localStorage.getItem("lifepassAdminToken") || "",
+    () => sessionStorage.getItem("lifepassAdminToken") || "",
   );
   const adminHeaders = useMemo(
     () => (adminToken ? { "x-admin-token": adminToken } : {}),
@@ -765,8 +767,8 @@ export default function App() {
   );
   const saveAdminToken = (value) => {
     setAdminToken(value);
-    if (value) localStorage.setItem("lifepassAdminToken", value);
-    else localStorage.removeItem("lifepassAdminToken");
+    if (value) sessionStorage.setItem("lifepassAdminToken", value);
+    else sessionStorage.removeItem("lifepassAdminToken");
   };
   const derived = useDerived(profile, benefits);
   const policySourceBreakdown = useMemo(() => {
@@ -795,10 +797,13 @@ export default function App() {
     setPolicyAdminLoading(true);
     setPolicyAdminMessage("");
     try {
-      const [sourcesRes, draftsRes, policiesRes] = await Promise.all([
+      const [sourcesRes, draftsRes, policiesRes, collectedRes] = await Promise.all([
         fetch("/api/sources"),
         fetch("/api/admin/review", { headers: adminHeaders }),
-        fetch("/api/policies"),
+        fetch("/api/policies?includeDrafts=false"),
+        adminToken
+          ? fetch("/api/policies?includeDrafts=true", { headers: adminHeaders })
+          : Promise.resolve(null),
       ]);
       if (!sourcesRes.ok)
         throw new Error(
@@ -809,6 +814,9 @@ export default function App() {
       const policies = policiesRes.ok
         ? await policiesRes.json()
         : { policies: [] };
+      const collectedPayload = collectedRes?.ok
+        ? await collectedRes.json()
+        : policies;
       const approved = (policies.policies || [])
         .map((p) => ({
           ...p,
@@ -819,7 +827,7 @@ export default function App() {
           rule: p.rule || { all: [] },
         }))
         .filter((p) => p.id && p.name);
-      const collected = (policies.collected_policies || policies.policies || [])
+      const collected = (collectedPayload.collected_policies || policies.policies || [])
         .map((p) => ({
           ...p,
           required_docs: Array.isArray(p.required_docs) ? p.required_docs : [],
@@ -832,7 +840,7 @@ export default function App() {
       setApprovedPolicies(approved);
       setCollectedPolicies(collected);
       setLegalReferences(
-        collected.filter((p) => p?.domain === "법령근거"),
+        approved.filter((p) => p?.domain === "법령근거"),
       );
       setPolicyAdmin({
         sources: sources.sources || [],
@@ -1856,8 +1864,8 @@ export default function App() {
                 />
               </label>
               <p className="muted">
-                토큰은 이 브라우저에만 저장되며, 관리자 API 호출 시
-                x-admin-token 헤더로 전송됩니다.
+                토큰은 현재 탭의 세션 저장소에만 저장되며, 관리자 API 호출 시
+                x-admin-token 헤더로 전송됩니다. 토큰이 없으면 검수 대기 초안은 추천에 포함되지 않습니다.
               </p>
             </div>
             <button
