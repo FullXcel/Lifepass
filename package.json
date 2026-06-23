@@ -1,29 +1,34 @@
 {
   "name": "lifepass-react-lite-document-first",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "type": "module",
   "description": "LifePass Streamlit MVP logic ported to a lightweight React document-first web app.",
+  "engines": {
+    "node": ">=22.12.0",
+    "npm": ">=10.0.0"
+  },
   "scripts": {
     "dev": "vite --host 0.0.0.0 --port 5173",
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0 --port 4173",
     "verify": "node scripts/verify.mjs",
+    "verify:security": "node scripts/verifySecurity.mjs",
     "server": "node server/index.js",
     "ingest:once": "node server/ingestOnce.js",
     "ingest:schedule": "node server/scheduler.js"
   },
   "dependencies": {
-    "@vitejs/plugin-react": "latest",
-    "dotenv": "^17.4.2",
-    "jszip": "latest",
-    "mammoth": "latest",
-    "papaparse": "latest",
-    "pdfjs-dist": "latest",
-    "react": "latest",
-    "react-dom": "latest",
-    "tesseract.js": "latest",
-    "vite": "latest",
-    "pg": "^8.13.1"
+    "@vitejs/plugin-react": "6.0.2",
+    "dotenv": "17.4.2",
+    "jszip": "3.10.1",
+    "mammoth": "1.12.0",
+    "papaparse": "5.5.3",
+    "pdfjs-dist": "5.7.284",
+    "pg": "8.21.0",
+    "react": "19.2.6",
+    "react-dom": "19.2.6",
+    "tesseract.js": "7.0.0",
+    "vite": "8.1.0"
   }
 }
