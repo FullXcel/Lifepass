@@ -16,10 +16,10 @@ export const OFFICIAL_POLICY_SOURCES = [
     defaultParams: { callTp: 'L', srchKeyCode: '003', numOfRows: 50, pageNo: 1 },
     pagination: { pageParam: 'pageNo', sizeParam: 'numOfRows', size: 50 },
     detail: {
-      // 중앙부처 복지서비스 API는 같은 요청 링크에서 callTp=L/D로 목록·상세를 구분한다.
-      useBaseEndpoint: true,
+      // 2025년 변경된 중앙부처 상세조회 엔드포인트는 BOKJIRO_CENTRAL_DETAIL_API_URL로 분리한다.
+      // 상세 URL이 비어 있으면 목록 데이터만 정책 후보로 저장하고, 다른 정책 상세를 억지로 결합하지 않는다.
       inheritDefaultParams: false,
-      defaultParams: { callTp: 'D' },
+      defaultParams: {},
       idKeys: ['wlfareInfoId', 'servId', 'serviceId', 'id', '서비스ID', '복지서비스ID'],
       param: 'wlfareInfoId',
       maxDetails: 25,
