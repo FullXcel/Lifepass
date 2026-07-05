@@ -294,7 +294,10 @@ function spanReplace(text, start, end) {
 export function parseOnboardingText(text) {
   const t = String(text || '').trim();
   const profile = {};
+  // 금액이 아닌 숫자(예: “주 3일”)를 소득으로 오인하지 않도록
+  // 미래/예상 소득 추출은 명시적 금액 단위가 있는 표현만 허용한다.
   const moneyAmount = '-?\\d[\\d,]*(?:\\.\\d+)?\\s*(?:억원|천\\s*만\\s*원|천만원|백\\s*만\\s*원|백만원|만\\s*원|만원|천\\s*원|천원|원)?';
+  const moneyAmountWithUnit = '-?\\d[\\d,]*(?:\\.\\d+)?\\s*(?:억원|천\\s*만\\s*원|천만원|백\\s*만\\s*원|백만원|만\\s*원|만원|천\\s*원|천원|원)';
   const age = t.match(/(?:나이|연령|신청자)?\s*(?:은|는|:|：)?\s*(?:만\s*)?(\d{1,3})\s*(?:세|살)(?!\s*(?:이상|이하|~|-|부터|까지))/);
   if (age && !/[~-]/.test(t.slice(Math.max(0, age.index - 2), age.index))) profile.age = Number(age[1]);
   for (const region of REGIONS) {
@@ -318,7 +321,11 @@ export function parseOnboardingText(text) {
   if (monthLeft && profile.unemployment_benefit_days_left === undefined) profile.unemployment_benefit_days_left = Number(monthLeft[1]) * 30;
 
   let currentText = t;
-  const futureIncome = t.match(new RegExp(`(\\d+)\\s*개월\\s*(?:뒤|후)[^,.。\\n]{0,50}?(?:월소득|소득|수입|월급|월)?\\s*(${moneyAmount})`));
+  const futureIncome = t.match(new RegExp(
+    `(\\d+)\\s*개월\\s*(?:뒤|후)[^,.。\\n]{0,100}?` +
+    `(?:예상\\s*)?(?:월\\s*소득|월소득|소득|수입|월급|월)\\s*` +
+    `(?:은|는|이|가|:|：)?\\s*(?:약\\s*)?(${moneyAmountWithUnit})`,
+  ));
   if (futureIncome) {
     profile.expected_income_start_month = Number(futureIncome[1]);
     profile.expected_monthly_income = moneyToInt(futureIncome[2], '만원');
@@ -329,7 +336,11 @@ export function parseOnboardingText(text) {
   else if (/(월\s*소득|월소득|소득|수입|월급)\s*(?:은|는|이|가|:|：)?\s*(?:없|없음|무소득|0\s*원?)/.test(currentText) || /(소득 없음|소득없음|무소득|월소득 0|소득 0)/.test(currentText)) profile.monthly_income = 0;
 
   if (profile.expected_monthly_income === undefined) {
-    const expected = t.match(new RegExp(`(?:예정|예상|시작)[^,.。\\n]{0,40}?(${moneyAmount})`));
+    const expected = t.match(new RegExp(
+      `(?:예정|예상|시작)[^,.。\\n]{0,80}?` +
+      `(?:월\\s*소득|월소득|소득|수입|월급)\\s*` +
+      `(?:은|는|이|가|:|：)?\\s*(?:약\\s*)?(${moneyAmountWithUnit})`,
+    ));
     if (expected) profile.expected_monthly_income = moneyToInt(expected[1], '만원');
   }
   const expectedMonth = t.match(/(\d+)\s*개월\s*(?:뒤|후).*?(?:알바|취업|소득|수입|월급)/);
@@ -418,6 +429,48 @@ function suspiciousRuleWarning(benefit = {}) {
   return '';
 }
 
+const BROAD_PROFILE_FIELDS = new Set(['region', 'district', 'age']);
+const SPECIFIC_ELIGIBILITY_FIELDS = new Set([
+  'monthly_income',
+  'expected_monthly_income',
+  'income_percent_median',
+  'rent',
+  'deposit',
+  'assets_million',
+  'household_size',
+  'employment_status',
+  'unemployment_benefit_receiving',
+  'unemployment_benefit_days_left',
+  'crisis_event',
+  'medical_expense_3m',
+  'credit_score',
+  'debt_monthly_payment',
+  'is_basic_livelihood',
+  'is_near_poverty',
+  'has_housing_contract',
+  'wants_job_training',
+  'has_recent_unemployment',
+]);
+
+export function ruleQualityIssue(rule) {
+  if (!hasEffectiveRule(rule)) return '자격 조건을 자동 판정할 규칙이 부족해 추천 조합에서 제외했습니다.';
+  const nodes = flattenRuleNodes(rule);
+  const fields = [...new Set(nodes.map((node) => node.field).filter(Boolean))];
+  if (fields.length < 2) {
+    return '자동 추천에 필요한 조건이 너무 적어 확인 필요로 분류했습니다. 지역·연령 같은 단일 조건만으로는 신청 가능성을 확정하지 않습니다.';
+  }
+  const hasSpecificField = fields.some((field) => SPECIFIC_ELIGIBILITY_FIELDS.has(field));
+  const broadOnly = fields.every((field) => BROAD_PROFILE_FIELDS.has(field));
+  if (!hasSpecificField || broadOnly) {
+    return '소득·주거·고용·수급상태 등 구체 조건이 부족해 자동 추천에서 제외했습니다.';
+  }
+  return '';
+}
+
+export function isBenefitRecommendable(benefit = {}) {
+  return !ruleQualityIssue(benefit.rule) && !suspiciousRuleWarning(benefit);
+}
+
 export function evaluateRule(rule, profile) {
   const p = normalizeProfile(profile);
   const traces = [];
@@ -441,15 +494,14 @@ export function evaluateRule(rule, profile) {
 
 export function evaluateBenefit(benefit, profile) {
   const ruleWarning = suspiciousRuleWarning(benefit);
-  const autoRuleReady = hasEffectiveRule(benefit.rule) && !ruleWarning;
+  const qualityIssue = ruleWarning || ruleQualityIssue(benefit.rule);
+  const autoRuleReady = hasEffectiveRule(benefit.rule) && !qualityIssue;
   const [eligible, trace] = autoRuleReady ? evaluateRule(benefit.rule, profile) : [false, []];
   const matched = trace.filter((t) => t.passed).map((t) => t.label);
-  const unmet = ruleWarning
-    ? [ruleWarning]
-    : (autoRuleReady
-      ? trace.filter((t) => !t.passed).map((t) => t.label)
-      : ['자격 조건을 자동 판정할 규칙이 부족해 추천 조합에서 제외했습니다.']);
-  const warnings = ruleWarning ? [ruleWarning] : [];
+  const unmet = qualityIssue
+    ? [qualityIssue]
+    : trace.filter((t) => !t.passed).map((t) => t.label);
+  const warnings = qualityIssue ? [qualityIssue] : [];
   if (benefit.warning_rule) {
     const [warningPassed, warningTrace] = evaluateRule(benefit.warning_rule, profile);
     if (warningPassed) warnings.push(...warningTrace.filter((t) => t.passed).map((t) => t.label));
