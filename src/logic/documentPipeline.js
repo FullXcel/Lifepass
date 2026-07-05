@@ -193,13 +193,13 @@ export function extractFieldsFromText(text = '') {
   const evidence = [];
   const t = String(text || '');
   const moneyAmount = `(${MONEY_AMOUNT_SOURCE})`;
-  const moneyAmountOptional = `(${MONEY_AMOUNT_OPTIONAL_UNIT_SOURCE})`;
+  const moneyAmountWithUnit = `(${MONEY_AMOUNT_SOURCE})`;
 
   const patterns = [
     ['age', /(?:나이|연령)?\s*(?:은|는|:|：)?\s*(?:만\s*)?(\d{1,3})\s*(?:세|살)(?!\s*(?:이상|이하|~|-|부터|까지))/, (m) => /[~-]/.test(t.slice(Math.max(0, m.index - 2), m.index)) ? undefined : Number(m[1])],
     ['household_size', /(?:(\d+)\s*인\s*가구|가구원\s*수\s*(?:은|는|:|：)?\s*(\d+)\s*명?|가구\s*수\s*(?:은|는|:|：)?\s*(\d+)\s*명?)/, (m) => Number(m[1] || m[2] || m[3])],
     ['monthly_income', new RegExp(`(?:월\\s*소득|월소득|근로소득|월급|수입)\\s*(?:은|는|이|가|:|：)?\\s*(?:${moneyAmount}|없음|없|무소득)(?!\\s*%)`), (m) => /없|무소득/.test(m[0]) ? 0 : moneyToWon(m[1], 'auto')],
-    ['expected_monthly_income', new RegExp(`(?:예상|예정)[^\\n]{0,30}?(?:월\\s*소득|소득|월급|수입|월)\\s*(?:은|는|이|가|:|：)?\\s*${moneyAmountOptional}(?!\\s*%)`), (m) => moneyToWon(m[1], 'auto')],
+    ['expected_monthly_income', new RegExp(`(?:예상|예정)[^\\n]{0,80}?(?:월\\s*소득|월소득|소득|월급|수입)\\s*(?:은|는|이|가|:|：)?\\s*(?:약\\s*)?${moneyAmountWithUnit}(?!\\s*%)`), (m) => moneyToWon(m[1], 'auto')],
     ['rent', new RegExp(`(?:월세|임대료|차임)\\s*(?:은|는|이|가|:|：)?\\s*${moneyAmount}`), (m) => moneyToWon(m[1], 'auto')],
     ['deposit', new RegExp(`(?:보증금|임대보증금)\\s*(?:은|는|이|가|:|：)?\\s*${moneyAmount}`), (m) => moneyToWon(m[1], 'auto')],
     ['unemployment_benefit_days_left', /(?:실업급여|구직급여|수급)[^,.。\n]{0,25}?(\d+)\s*일/, (m) => Number(m[1])],
