@@ -1,13 +1,13 @@
 import React, { useEffect, useMemo, useState } from "react";
 import Papa from "papaparse";
 import benefitsSeed from "./data/benefits.json";
-import sampleProfiles from "./data/sample_profiles.json";
 import {
   DEFAULT_PROFILE,
   asProfile,
   normalizeProfile,
   validateProfile,
   parseOnboardingText,
+  isBenefitRecommendable,
   evaluateAll,
   optimizeBenefits,
   solveBenefitPortfolio,
@@ -43,6 +43,39 @@ const TABS = [
   "신청 준비하기",
   "판정 근거 확인하기",
 ];
+
+const EMPTY_PROFILE = {
+  ...DEFAULT_PROFILE,
+  age: "",
+  region: "",
+  district: "",
+  household_size: "",
+  employment_status: "",
+  credit_score: "",
+  has_housing_contract: false,
+  wants_job_training: false,
+};
+
+function zeroDerived(benefits = []) {
+  return {
+    safeProfile: normalizeProfile(DEFAULT_PROFILE),
+    validationWarnings: [],
+    evaluations: [],
+    plan: { selected: [], selected_benefits: [], rejected_due_to_conflict: [], conflict_details: [], explanation: [], total_monthly_value: 0 },
+    portfolio: { conflict_free: true, selected: [], rejected: [] },
+    timeline: [],
+    cliffs: [],
+    events: [],
+    strategy: {},
+    workflow: { tasks: [] },
+    notifications: [],
+    agent: { priority_score: 0, priority_grade: "입력 전", reasons: [], actions: [], tool_calls: [] },
+    agentWorkflow: { steps: [], nodes: [], edges: [], human_review_required: false },
+    audit: { audit_score: 0, status: "입력 전", controls: [] },
+    counterfactuals: [],
+    benefits,
+  };
+}
 
 function valueText(value) {
   if (typeof value === "boolean") return value ? "예" : "아니오";
@@ -721,7 +754,12 @@ export default function App() {
     // 검수 대기 초안은 관리자 화면에는 보이지만 실제 혜택 추천에는 섞지 않는다.
     return approvedPolicies
       .filter(
-        (policy) => policy?.id && policy?.name && policy?.domain !== '법령근거' && policy?.recommended_for_individuals !== false,
+        (policy) =>
+          policy?.id &&
+          policy?.name &&
+          policy?.domain !== '법령근거' &&
+          policy?.recommended_for_individuals !== false &&
+          isBenefitRecommendable(policy),
       )
       .map((policy) => ({
         ...policy,
@@ -734,15 +772,14 @@ export default function App() {
         rule: policy.rule || { all: [] },
       }));
   }, [approvedPolicies]);
-  const usingFallbackPolicies = activeExternalPolicies.length === 0;
+  const usingFallbackPolicies = approvedPolicies.length === 0;
   const usingPendingCollectedPolicies = activeExternalPolicies.some((policy) => policy.pending_review || policy.review_status === "pending_review");
   const benefits = useMemo(() => {
-    if (activeExternalPolicies.length > 0) return activeExternalPolicies;
+    if (approvedPolicies.length > 0) return activeExternalPolicies;
     return benefitsSeed;
-  }, [activeExternalPolicies]);
-  const [profile, setProfile] = useState(
-    normalizeProfile(sampleProfiles[0]?.profile || DEFAULT_PROFILE),
-  );
+  }, [activeExternalPolicies, approvedPolicies.length]);
+  const [profile, setProfile] = useState(EMPTY_PROFILE);
+  const [profileReady, setProfileReady] = useState(false);
   const [onboardingText, setOnboardingText] = useState("");
   const [onboardingParsed, setOnboardingParsed] = useState(false);
   const [docResult, setDocResult] = useState(null);
@@ -770,9 +807,18 @@ export default function App() {
     if (value) sessionStorage.setItem("lifepassAdminToken", value);
     else sessionStorage.removeItem("lifepassAdminToken");
   };
+  const applyProfileInput = (nextProfile) => {
+    setProfile(normalizeProfile(nextProfile));
+    setProfileReady(true);
+  };
   const derived = useDerived(profile, benefits);
+  const displayDerived = profileReady ? derived : zeroDerived(benefits);
+  const matchedPolicyCount = profileReady
+    ? displayDerived.evaluations.filter((e) => e.eligible).length
+    : 0;
   const policySourceBreakdown = useMemo(() => {
     if (usingFallbackPolicies) return [{ 출처: "데모 정책", 포함정책: benefits.length }];
+    if (!activeExternalPolicies.length) return [{ 출처: "추천 가능 조건 부족", 포함정책: 0 }];
     const counts = new Map();
     activeExternalPolicies.forEach((policy) => {
       const label = sourceLabelOf(policy, "출처 미상");
@@ -913,7 +959,7 @@ export default function App() {
   const handleOnboardingText = () => {
     if (!onboardingText.trim()) return;
     const parsed = parseOnboardingText(onboardingText);
-    setProfile(parsed);
+    applyProfileInput(parsed);
     setOnboardingParsed(true);
   };
 
@@ -925,7 +971,7 @@ export default function App() {
     try {
       const result = await runDocumentPipeline(file, { useOcr: true });
       setDocResult(result);
-      if (result.documentKind !== "policy_notice") setProfile(result.profile);
+      if (result.documentKind !== "policy_notice") applyProfileInput(result.profile);
     } catch (error) {
       setDocError(error?.message || String(error));
     } finally {
@@ -956,7 +1002,7 @@ export default function App() {
   const verificationChecklist = docResult
     ? buildVerificationChecklist(docResult)
     : [];
-  const eligibleRows = derived.evaluations.map((ev) => ({
+  const eligibleRows = displayDerived.evaluations.map((ev) => ({
     혜택: ev.name,
     출처: sourceLabelOf(ev, usingFallbackPolicies ? "데모 정책" : "출처 미상"),
     분야: ev.domain,
@@ -967,7 +1013,7 @@ export default function App() {
     미충족조건: ev.unmet.slice(0, 3).join(", "),
     안내링크: linkCellFor(ev),
   }));
-  const timelineRows = derived.timeline.map((r) => ({
+  const timelineRows = displayDerived.timeline.map((r) => ({
     시점: r.label,
     월소득: money(r.income),
     선택혜택수: r.selected_benefits.length,
@@ -976,17 +1022,17 @@ export default function App() {
     신규: r.gained?.join(", ") || "없음",
     상실: r.lost?.join(", ") || "없음",
   }));
-  const cliffRows = derived.cliffs.map((r) => ({
+  const cliffRows = displayDerived.cliffs.map((r) => ({
     소득시나리오: r.label,
     혜택: money(r.benefit_value),
     순효과: money(r.net_effect),
     경고: r.warnings.join(" / "),
   }));
-  const applicationStrategyEntries = Object.entries(derived.strategy || {});
+  const applicationStrategyEntries = Object.entries(displayDerived.strategy || {});
   const agentReasons =
-    Array.isArray(derived.agent?.reasons) && derived.agent.reasons.length
-      ? derived.agent.reasons
-      : (derived.agent?.actions || [])
+    Array.isArray(displayDerived.agent?.reasons) && displayDerived.agent.reasons.length
+      ? displayDerived.agent.reasons
+      : (displayDerived.agent?.actions || [])
           .map((a) => `${a.액션} — ${a.이유}`)
           .filter(Boolean);
   const taskStatusText = { todo: "준비 전", planned: "예정", done: "완료" };
@@ -1059,7 +1105,7 @@ export default function App() {
           <section className="dashboard-strip">
             <Metric
               label="매칭 정책"
-              value={`${benefits.length}개`}
+              value={`${matchedPolicyCount}개`}
               note={
                 usingFallbackPolicies
                   ? "데모 정책 기준"
@@ -1075,13 +1121,13 @@ export default function App() {
             />
             <Metric
               label="최적 조합"
-              value={`${derived.plan.selected.length}개`}
-              note={money(derived.plan.total_monthly_value)}
+              value={`${displayDerived.plan.selected.length}개`}
+              note={money(displayDerived.plan.total_monthly_value)}
             />
             <Metric
               label="확인 우선도"
-              value={`${derived.agent.priority_score}점`}
-              note={derived.agent.priority_grade}
+              value={`${displayDerived.agent.priority_score}점`}
+              note={displayDerived.agent.priority_grade}
             />
           </section>
           <ExplanationDetails>
@@ -1089,11 +1135,11 @@ export default function App() {
               rows={[
                 {
                   항목: "매칭 정책",
-                  현재값: `${benefits.length}개`,
-                  의미: "현재 사용자 조건과 비교하는 정책 수입니다.",
+                  현재값: `${matchedPolicyCount}개`,
+                  의미: "현재 입력 정보가 정책 조건을 통과한 실제 매칭 정책 수입니다.",
                   결과해석: usingFallbackPolicies
-                    ? "공식 수집 정책이 없어 내장 데모 정책으로 판정 중입니다."
-                    : "공식 API 또는 수집 후보에서 가져온 정책으로 판정 중입니다.",
+                    ? "정보 입력 전에는 0개로 표시하고, 입력 후 내장 데모 정책과 비교합니다."
+                    : "정보 입력 전에는 0개로 표시하고, 입력 후 승인 정책 중 조건이 충분한 정책만 비교합니다.",
                 },
                 {
                   항목: "법령 근거",
@@ -1103,15 +1149,15 @@ export default function App() {
                 },
                 {
                   항목: "최적 조합",
-                  현재값: `${derived.plan.selected.length}개`,
+                  현재값: `${displayDerived.plan.selected.length}개`,
                   의미: "현재 받을 가능성이 있는 혜택 중 중복·충돌을 제거하고 남긴 추천 조합입니다.",
-                  결과해석: `월 환산효과는 ${money(derived.plan.total_monthly_value)}입니다.`,
+                  결과해석: `월 환산효과는 ${money(displayDerived.plan.total_monthly_value)}입니다.`,
                 },
                 {
                   항목: "확인 우선도",
-                  현재값: `${derived.agent.priority_score}점`,
+                  현재값: `${displayDerived.agent.priority_score}점`,
                   의미: "소득 공백, 실업급여 종료, 주거비 부담, 혜택 상실 가능성 등을 합산한 추가 확인 필요도입니다.",
-                  결과해석: derived.agent.priority_grade,
+                  결과해석: displayDerived.agent.priority_grade,
                 },
               ]}
             />
@@ -1194,7 +1240,7 @@ export default function App() {
               title="읽어낸 정보 확인하기"
               subtitle="입력하신 내용에서 아래 정보를 추출했습니다. 틀린 부분이 있으면 직접 수정해 주세요."
             >
-              <ProfileEditor profile={profile} onChange={setProfile} />
+              <ProfileEditor profile={profile} onChange={applyProfileInput} />
             </Section>
           )}
 
@@ -1355,7 +1401,7 @@ export default function App() {
                 </div>
                 <div>
                   <h3>내 정보 확인·수정하기</h3>
-                  <ProfileEditor profile={profile} onChange={setProfile} />
+                  <ProfileEditor profile={profile} onChange={applyProfileInput} />
                 </div>
               </div>
               {docResult.validation?.issues?.length > 0 && (
@@ -1421,19 +1467,19 @@ export default function App() {
               />
               <Metric
                 label="가능 혜택"
-                value={`${derived.evaluations.filter((e) => e.eligible).length}개`}
+                value={`${matchedPolicyCount}개`}
               />
               <Metric
                 label="최적 선택"
-                value={`${derived.plan.selected.length}개`}
+                value={`${displayDerived.plan.selected.length}개`}
               />
               <Metric
                 label="월 환산효과"
-                value={money(derived.plan.total_monthly_value)}
+                value={money(displayDerived.plan.total_monthly_value)}
               />
               <Metric
                 label="혜택 간 충돌"
-                value={derived.portfolio.conflict_free ? "없음" : "있음"}
+                value={displayDerived.portfolio.conflict_free ? "없음" : "있음"}
               />
             </div>
             <ExplanationDetails>
@@ -1449,25 +1495,25 @@ export default function App() {
                   },
                   {
                     항목: "가능 혜택",
-                    현재값: `${derived.evaluations.filter((e) => e.eligible).length}개`,
+                    현재값: `${matchedPolicyCount}개`,
                     의미: "현재 입력 정보가 정책 조건을 통과한 혜택 수입니다.",
                     결과해석: "실제 지급 확정이 아니라 신청 가능성이 높은 후보입니다.",
                   },
                   {
                     항목: "최적 선택",
-                    현재값: `${derived.plan.selected.length}개`,
+                    현재값: `${displayDerived.plan.selected.length}개`,
                     의미: "가능 혜택 중 중복 수급 제한과 충돌을 고려해 우선 추천한 조합입니다.",
                     결과해석: "월 환산효과와 중요도를 함께 보되, 금액 효과가 더 크게 작용합니다.",
                   },
                   {
                     항목: "월 환산효과",
-                    현재값: money(derived.plan.total_monthly_value),
+                    현재값: money(displayDerived.plan.total_monthly_value),
                     의미: "선택된 혜택을 월 단위 금액으로 환산해 합산한 값입니다.",
                     결과해석: "일시금·연간 지원은 월평균처럼 단순 환산하고, 융자·보증의 원금 한도는 실제 지급 현금이 아니므로 월 환산효과에서 제외합니다.",
                   },
                   {
                     항목: "혜택 간 충돌",
-                    현재값: derived.portfolio.conflict_free ? "없음" : "있음",
+                    현재값: displayDerived.portfolio.conflict_free ? "없음" : "있음",
                     의미: "동일 성격 혜택의 중복수급 제한이나 직접 충돌 조건이 있는지 본 결과입니다.",
                     결과해석: "없음이면 현재 선택 조합 안에서는 충돌을 찾지 못했다는 뜻입니다.",
                   },
@@ -1479,7 +1525,7 @@ export default function App() {
               <SimpleTable rows={POLICY_PRIORITY_GUIDE} />
             </ExplanationDetails>
             <div className="selected-list">
-              {derived.plan.selected.map((b) => (
+              {displayDerived.plan.selected.map((b) => (
                 <article key={b.benefit_id} className="benefit-card">
                   <div className="card-top">
                     <Badge tone="good">선택</Badge>
@@ -1504,12 +1550,12 @@ export default function App() {
             subtitle="같은 성격의 혜택을 중복으로 받을 수 없는 경우, 더 유리한 조합을 우선 보여줍니다."
           >
             <ul className="clean-list">
-              {derived.plan.explanation.map((line, idx) => (
+              {displayDerived.plan.explanation.map((line, idx) => (
                 <li key={idx}>{line}</li>
               ))}
             </ul>
             <SimpleTable
-              rows={(derived.plan.conflict_details || []).map((detail) => ({
+              rows={(displayDerived.plan.conflict_details || []).map((detail) => ({
                 제외혜택: detail.benefit_name,
                 충돌대상: detail.blockers.map((b) => b.name).join(', ') || '선택된 혜택',
                 정확한사유: detail.reason,
@@ -1529,34 +1575,34 @@ export default function App() {
             <div className="metrics-row">
               <Metric
                 label="현재 순효과"
-                value={money(derived.timeline[0]?.net_effect || 0)}
+                value={money(displayDerived.timeline[0]?.net_effect || 0)}
               />
               <Metric
                 label="3개월 후 순효과"
                 value={money(
-                  derived.timeline.find((x) => x.month === 3)?.net_effect || 0,
+                  displayDerived.timeline.find((x) => x.month === 3)?.net_effect || 0,
                 )}
               />
-              <Metric label="이벤트" value={`${derived.events.length}개`} />
+              <Metric label="이벤트" value={`${displayDerived.events.length}개`} />
             </div>
             <ExplanationDetails>
               <SimpleTable
                 rows={[
                   {
                     항목: "현재 순효과",
-                    현재값: money(derived.timeline[0]?.net_effect || 0),
+                    현재값: money(displayDerived.timeline[0]?.net_effect || 0),
                     의미: "현재 월소득과 선택 혜택 월환산효과에서 월세·대출상환액을 뺀 추정 여유액입니다.",
                     결과해석: "생활 여력을 빠르게 비교하기 위한 시뮬레이션 값입니다.",
                   },
                   {
                     항목: "3개월 후 순효과",
-                    현재값: money(derived.timeline.find((x) => x.month === 3)?.net_effect || 0),
+                    현재값: money(displayDerived.timeline.find((x) => x.month === 3)?.net_effect || 0),
                     의미: "예상 소득 발생·실업급여 종료 등 3개월 뒤 조건 변화를 반영한 추정값입니다.",
                     결과해석: "현재보다 낮아지면 복지절벽 또는 소득 공백 위험을 확인해야 합니다.",
                   },
                   {
                     항목: "이벤트",
-                    현재값: `${derived.events.length}개`,
+                    현재값: `${displayDerived.events.length}개`,
                     의미: "앞으로 신규 가능, 상실 위험, 재점검 필요 등으로 표시한 변화 알림 수입니다.",
                     결과해석: "이벤트가 많을수록 시간에 따른 자격 변동을 더 자주 확인해야 합니다.",
                   },
@@ -1574,7 +1620,7 @@ export default function App() {
             subtitle="같은 사용자가 다른 선택/상황을 맞았을 때 월환산효과가 어떻게 바뀌는지 비교합니다."
           >
             <SimpleTable
-              rows={derived.counterfactuals.map((r) => ({
+              rows={displayDerived.counterfactuals.map((r) => ({
                 시나리오: r.scenario,
                 월환산효과: money(r.월환산효과),
                 변화: r.delta_label,
@@ -1594,11 +1640,11 @@ export default function App() {
             <div className="metrics-row">
               <Metric
                 label="준비할 일"
-                value={`${derived.workflow.tasks.length}개`}
+                value={`${displayDerived.workflow.tasks.length}개`}
               />
               <Metric
                 label="알림 예정"
-                value={`${derived.notifications.length}개`}
+                value={`${displayDerived.notifications.length}개`}
               />
             </div>
             <ExplanationDetails>
@@ -1607,13 +1653,13 @@ export default function App() {
                   
                   {
                     항목: "준비할 일",
-                    현재값: `${derived.workflow.tasks.length}개`,
+                    현재값: `${displayDerived.workflow.tasks.length}개`,
                     의미: "서류 준비, 신청, 결과 확인처럼 사용자가 처리해야 할 작업 수입니다.",
                     결과해석: "개수가 많으면 우선순위가 높은 혜택부터 처리하는 것이 좋습니다.",
                   },
                   {
                     항목: "알림 예정",
-                    현재값: `${derived.notifications.length}개`,
+                    현재값: `${displayDerived.notifications.length}개`,
                     의미: "마감일이나 재확인 시점에 맞춰 알려줘야 할 일정 수입니다.",
                     결과해석: "실제 알림 기능과 연결하려면 캘린더·푸시 알림 연동이 추가로 필요합니다.",
                   },
@@ -1622,7 +1668,7 @@ export default function App() {
             </ExplanationDetails>
             <h3>먼저 할 일</h3>
             <SimpleTable
-              rows={derived.workflow.tasks.map((t) => ({
+              rows={displayDerived.workflow.tasks.map((t) => ({
                 혜택: t.benefit,
                 할일: t.task,
                 기한: t.due,
@@ -1649,13 +1695,13 @@ export default function App() {
             <div className="metrics-row">
               <Metric
                 label="확인 우선도"
-                value={`${derived.agent.priority_score}점`}
+                value={`${displayDerived.agent.priority_score}점`}
               />
-              <Metric label="상태" value={derived.agent.priority_grade} />
+              <Metric label="상태" value={displayDerived.agent.priority_grade} />
               <Metric
                 label="상담사 확인"
                 value={
-                  derived.agentWorkflow.human_review_required ? "권장" : "선택"
+                  displayDerived.agentWorkflow.human_review_required ? "권장" : "선택"
                 }
               />
             </div>
@@ -1664,19 +1710,19 @@ export default function App() {
                 rows={[
                   {
                     항목: "확인 우선도",
-                    현재값: `${derived.agent.priority_score}점`,
+                    현재값: `${displayDerived.agent.priority_score}점`,
                     의미: "현재 상황에서 추가 확인이 얼마나 필요한지 나타내는 점수입니다.",
-                    결과해석: derived.agent.priority_grade,
+                    결과해석: displayDerived.agent.priority_grade,
                   },
                   {
                     항목: "상태",
-                    현재값: derived.agent.priority_grade,
+                    현재값: displayDerived.agent.priority_grade,
                     의미: "확인 우선도 점수를 안정·주의·긴급으로 번역한 상태입니다.",
                     결과해석: "주의 이상이면 입력값, 원문 공고, 제출 서류를 다시 확인하는 것이 좋습니다.",
                   },
                   {
                     항목: "상담사 확인",
-                    현재값: derived.agentWorkflow.human_review_required ? "권장" : "선택",
+                    현재값: displayDerived.agentWorkflow.human_review_required ? "권장" : "선택",
                     의미: "자동 판정만으로 부족할 수 있어 사람이 검토해야 하는지 나타냅니다.",
                     결과해석: "권장이면 법령·최신 공고·중복수급 여부를 추가 확인하세요.",
                   },
@@ -1708,12 +1754,12 @@ export default function App() {
             <div className="metrics-row">
               <Metric
                 label="판정점수"
-                value={`${derived.audit.audit_score}점`}
+                value={`${displayDerived.audit.audit_score}점`}
               />
-              <Metric label="상태" value={derived.audit.status} />
+              <Metric label="상태" value={displayDerived.audit.status} />
               <Metric
                 label="검증 경고"
-                value={`${derived.validationWarnings.length}개`}
+                value={`${displayDerived.validationWarnings.length}개`}
               />
             </div>
             <ExplanationDetails>
@@ -1721,19 +1767,19 @@ export default function App() {
                 rows={[
                   {
                     항목: "판정점수",
-                    현재값: `${derived.audit.audit_score}점`,
+                    현재값: `${displayDerived.audit.audit_score}점`,
                     의미: "조건 확인, 중복 신청 가능성, 상담사 확인 필요 여부, 개인정보 최소 사용, 판정 근거 제공 상태를 종합한 신뢰 점수입니다.",
-                    결과해석: derived.audit.status,
+                    결과해석: displayDerived.audit.status,
                   },
                   {
                     항목: "상태",
-                    현재값: derived.audit.status,
+                    현재값: displayDerived.audit.status,
                     의미: "판정점수를 사람이 이해하기 쉽게 바꾼 결과입니다.",
                     결과해석: "추가 확인 필요이면 자동 판정 결과를 그대로 확정하지 말고 근거를 확인하세요.",
                   },
                   {
                     항목: "검증 경고",
-                    현재값: `${derived.validationWarnings.length}개`,
+                    현재값: `${displayDerived.validationWarnings.length}개`,
                     의미: "프로필 입력값에 누락·비정상 값이 있을 때 표시되는 경고 수입니다.",
                     결과해석: "0개가 아니면 내 정보 불러오기 탭에서 값을 보완하세요.",
                   },
@@ -1769,7 +1815,7 @@ export default function App() {
             />
             <h3>안전 확인 항목</h3>
             <SimpleTable
-              rows={derived.audit.controls.map((c) => ({
+              rows={displayDerived.audit.controls.map((c) => ({
                 통제항목: c.control,
                 상태: c.status,
                 근거: c.evidence,
@@ -1777,7 +1823,7 @@ export default function App() {
             />
             <h3>판정 과정 요약</h3>
             <SimpleTable
-              rows={derived.agentWorkflow.steps.map((s) => ({
+              rows={displayDerived.agentWorkflow.steps.map((s) => ({
                 단계: s.step,
                 노드: s.node,
                 작업: s.action,
@@ -1995,7 +2041,7 @@ export default function App() {
             subtitle="사용자에게 왜 가능/불가능한지 조건 단위로 설명할 수 있습니다."
           >
             <div className="trace-list">
-              {derived.evaluations.slice(0, 8).map((ev) => (
+              {displayDerived.evaluations.slice(0, 8).map((ev) => (
                 <details key={ev.benefit_id}>
                   <summary>
                     {ev.eligible ? "✅" : "❌"} {ev.name}
