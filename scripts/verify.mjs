@@ -4,6 +4,8 @@ import path from 'node:path';
 import process from 'node:process';
 import {
   parseOnboardingText,
+  ruleQualityIssue,
+  isBenefitRecommendable,
   evaluateAll,
   optimizeBenefits,
   simulateTimeline,
@@ -74,10 +76,13 @@ assert(!appSource.includes('텍스트 직접 입력</h3>'), '텍스트 직접 �
 assert(!appSource.includes('onClick={applyText}'), '텍스트 입력 적용 버튼이 아직 남아 있음');
 assert(appSource.includes('approvedPolicies') && appSource.includes('setApprovedPolicies'), '승인된 외부 정책 상태 관리 로직이 없음');
 assert(appSource.includes('activeExternalPolicies') && appSource.includes('usingFallbackPolicies'), '외부 승인 정책 우선 사용 및 데모 정책 fallback 로직이 없음');
-assert(appSource.includes('if (activeExternalPolicies.length > 0) return activeExternalPolicies;'), '외부 정책이 있으면 데모 정책을 제외하는 로직이 없음');
+assert(appSource.includes('if (approvedPolicies.length > 0) return activeExternalPolicies;'), '승인 정책이 있으면 데모 정책을 제외하는 로직이 없음');
 assert(appSource.includes('x-admin-token'), '관리자 API 호출에 x-admin-token 헤더를 보내는 로직이 없음');
 assert(appSource.includes('landing-screen') && appSource.includes('정책·법령 자동 수집'), '초기 랜딩 화면 또는 정책·법령 설명 UI가 없음');
 assert(appSource.includes('legalReferences') && appSource.includes("domain !== '법령근거'"), '법령 근거를 혜택 매칭에서 분리하는 로직이 없음');
+assert(!appSource.includes('sampleProfiles'), '초기 프로필이 샘플 사용자 정보에 의존하고 있음');
+assert(appSource.includes('profileReady') && appSource.includes('matchedPolicyCount'), '입력 전 0표시 또는 실제 매칭 수 표시 상태가 없음');
+assert(appSource.includes('isBenefitRecommendable(policy)'), '조건이 약한 수집 정책을 추천 대상에서 제외하는 필터가 없음');
 
 const envSource = fs.readFileSync(path.join(root, 'server/config/env.js'), 'utf-8');
 assert(envSource.includes('dotenv.config'), '.env를 로드하는 dotenv 설정이 없음');
@@ -168,6 +173,19 @@ assert(extraction.evidence.some((e) => e.field === 'monthly_income' && e.value =
 assert(!extraction.evidence.some((e) => e.field === 'unemployment_benefit_days_left' && e.value === 90), '실업급여 잔여일이 미래소득 3개월과 혼동됨');
 const validation = validateExtraction(extraction);
 assert(Array.isArray(validation.issues), '검증 이슈 배열이 아님');
+
+const counselingMemoText = `서울 거주 만 28세 1인 가구입니다. 현재 월소득은 없음이고 월세는 45만원입니다.
+3개월 뒤부터 주 3일 아르바이트를 시작할 예정이고, 예상 월소득은 약 80만 원입니다. 실업급여는 45일 남았습니다.`;
+const counselingParsed = parseOnboardingText(counselingMemoText);
+assert(counselingParsed.expected_income_start_month === 3, `상담 메모 미래 소득 시작 시점 추출 실패: ${counselingParsed.expected_income_start_month}`);
+assert(counselingParsed.expected_monthly_income === 800000, `상담 메모 예상 월소득을 주 3일 숫자와 혼동함: ${counselingParsed.expected_monthly_income}`);
+const counselingExtraction = extractFieldsFromText(counselingMemoText);
+assert(counselingExtraction.profile.expected_monthly_income === 800000, `문서 필드 예상 월소득 추출 실패: ${counselingExtraction.profile.expected_monthly_income}`);
+assert(counselingExtraction.profile.expected_monthly_income !== 30000, '주 3일을 예상 월소득 3만원으로 오인함');
+
+const weakRegionOnlyPolicy = { id: 'weak-region-only', name: '지역만 있는 정책', rule: { field: 'region', op: '==', value: '서울' } };
+assert(ruleQualityIssue(weakRegionOnlyPolicy.rule), '지역 단일 조건 정책이 자동 추천 가능으로 분류됨');
+assert(!isBenefitRecommendable(weakRegionOnlyPolicy), '조건이 약한 정책이 추천 대상에 포함됨');
 
 const policyText = fs.readFileSync(path.join(root, 'docs/test_inputs/youth_rent_policy_notice_2026.txt'), 'utf-8');
 assert(detectDocumentKind(policyText) === 'policy_notice', '정책 문서 유형 감지 실패');
