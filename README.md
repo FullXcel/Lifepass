@@ -1,326 +1,328 @@
 # LifePass AI
 
-**LifePass는 개인이 자신의 상황을 입력하거나 관련 문서를 올려, 받을 수 있는 복지·공공 혜택을 확인하고 신청 준비 순서를 정리해 보는 복지 의사결정 보조 플랫폼입니다.**
+**LifePass is a welfare decision-support platform that helps individuals enter information about their circumstances or upload relevant documents, identify welfare and public benefits they may qualify for, and organize the steps needed to prepare an application.**
 
-LifePass AI는 사용자가 여러 정책을 하나씩 찾아보는 부담을 줄이고, 내 상황이 바뀔 때 어떤 혜택이 달라질 수 있는지 미리 살펴보도록 돕는 보조 도구입니다.
+LifePass AI reduces the burden of searching through policies one by one and helps users preview how their eligibility may change when their personal circumstances change.
 
-![메인 화면](docs/images/main_page.png)
----
-
-## 1. LifePass AI가 해결하는 문제
-
-복지 정책은 많지만, 일반 사용자가 직접 확인하기에는 다음과 같은 어려움이 있습니다.
-
-- 정책마다 나이, 소득, 가구 형태, 지역, 월세, 보증금, 고용 상태 기준이 다릅니다.
-- 현재 받을 수 있는 혜택뿐 아니라, 몇 달 뒤 소득이 생기거나 상황이 바뀌었을 때 받을 수 있는 혜택도 달라질 수 있습니다.
-- 정책 안내문은 길고 어렵기 때문에 사용자가 어떤 조건을 봐야 하는지 알기 어렵습니다.
-- 신청 가능성이 있더라도 어떤 서류부터 준비해야 하는지 헷갈릴 수 있습니다.
-
-LifePass는 이런 문제를 줄이기 위해 다음 흐름을 제공합니다.
-
-1. 사용자가 자신의 정보를 입력하거나 문서를 올립니다.
-2. 플랫폼이 나이, 지역, 월소득, 월세, 보증금, 고용 상태, 보유 서류 같은 핵심 정보를 읽어냅니다.
-3. 현재 등록된 정책들과 사용자 정보를 비교합니다.
-4. 받을 수 있는 혜택, 신청 준비 항목, 소득 변화에 따른 혜택 변화 가능성을 보여줍니다.
-5. 정책 자동 수집 서버를 함께 사용하면 외부 공식 API에서 정책 후보를 가져오고, 관리자 검수 후 플랫폼 정책 목록에 반영할 수 있습니다.
+![Main Page](docs/images/main_page.png)
 
 ---
 
-## 2. 타깃 사용자
+## 1. The Problem LifePass AI Solves
 
-현재 LifePass AI의 기본 포지션은 **일반 국민이 직접 사용하는 셀프체크형 플랫폼**입니다.
+Although many welfare policies are available, they can be difficult for ordinary users to evaluate on their own.
 
-예를 들어 다음과 같은 사용자를 가정합니다.
+- Each policy applies different criteria for age, income, household type, region, monthly rent, deposit, and employment status.
+- Eligibility may change not only based on the user's current situation, but also when they begin earning income or experience other changes several months later.
+- Policy documents are often long and difficult to understand, making it hard for users to identify which conditions matter.
+- Even when users may be eligible, they may not know which documents to prepare first.
 
-- 월세 부담이 있는 청년
-- 퇴사 후 구직 중인 사람
-- 아르바이트나 단기 근로를 시작할 예정인 사람
-- 현재 소득은 낮지만 몇 달 뒤 소득 변화가 예상되는 사람
-- 받을 수 있는 복지 혜택과 신청 준비물을 한 번에 정리하고 싶은 사람
+LifePass provides the following workflow to reduce these difficulties:
 
-기관용 상담 시스템으로 확장할 가능성도 있지만, 현재 버전은 상담기관 내부 업무 시스템이라기보다 개인이 직접 자기 상황을 확인해 보는 서비스에 가깝습니다.
-
----
-
-## 3. 주요 기능
-
-### 3.1 내 정보 불러오기
-
-사용자는 PDF, 워드 문서, 텍스트 파일, 이미지 파일 등을 올려 자신의 정보를 불러올 수 있습니다.
-
-예를 들어 다음과 같은 자료를 넣어볼 수 있습니다.
-
-- 상담 메모
-- 임대차계약 관련 메모
-- 월세·보증금·소득 정보가 들어 있는 문서
-- 본인의 상황을 정리한 텍스트 파일
-- 정책 안내문
-
-파일을 올리면 플랫폼은 문서에서 핵심 정보를 추출합니다.
-
-- 나이
-- 거주 지역
-- 가구 형태
-- 월소득
-- 월세
-- 보증금
-- 실업급여 잔여일
-- 몇 달 뒤 예상 소득
-- 보유 서류
-
-문서에서 읽은 정보가 틀렸거나 빠졌다면, 화면의 직접 수정 영역에서 값을 고칠 수 있습니다.
-
-> 현재 버전에서는 자유 텍스트 직접 입력과 문서 업로드를 모두 지원합니다. 사용자는 “만 28세, 서울 거주, 월세 45만 원…”처럼 자연어로 상황을 적거나, 문서를 올린 뒤 추출된 값을 수치·상태 수정 영역에서 다시 확인할 수 있습니다. 최종 판단에 쓰이는 값은 화면에 노출해 사용자가 직접 고칠 수 있도록 했습니다.
+1. The user enters personal information or uploads a document.
+2. The platform extracts key information such as age, region, monthly income, monthly rent, deposit, employment status, and available documents.
+3. The platform compares the user's information with registered policies.
+4. It shows potentially available benefits, application preparation items, and possible changes in benefits caused by income changes.
+5. When used with the policy ingestion server, the platform can retrieve policy candidates from external official APIs and add them to the platform's policy catalog after administrator review.
 
 ---
 
-### 3.2 받을 수 있는 혜택
+## 2. Target Users
 
-사용자의 현재 정보와 등록된 정책 조건을 비교해 신청 가능성이 있는 혜택을 보여줍니다.
+The current version of LifePass AI is positioned as a **self-check platform for members of the general public**.
 
-이 화면에서는 다음을 확인할 수 있습니다.
+Example users include:
 
-- 신청 가능성이 있는 정책
-- 현재 정보만으로는 확인이 필요한 정책
-- 조건이 맞지 않는 정책
-- 정책별 예상 효과
-- 어떤 조건 때문에 가능하거나 불가능한지에 대한 설명
+- Young adults who are burdened by monthly rent
+- People who are looking for work after leaving a job
+- People planning to start a part-time or short-term job
+- People with low current income who expect their income to change in a few months
+- People who want to organize available welfare benefits and application requirements in one place
 
-LifePass AI의 판정은 최종 행정 판정이 아닙니다. 사용자가 공식 신청 전에 자기 상황을 미리 점검하는 용도입니다.
-
----
-
-### 3.3 복지절벽 미리보기
-
-소득이 생기거나 늘어날 때 받을 수 있는 혜택이 갑자기 줄어들 수 있습니다. LifePass AI는 이런 변화를 미리 확인할 수 있도록 돕습니다.
-
-예를 들어 현재 소득이 없지만 3개월 뒤 월 80만 원 아르바이트를 시작할 예정이라면 다음을 살펴볼 수 있습니다.
-
-- 지금 받을 수 있는 혜택
-- 3개월 뒤 예상 소득이 생겼을 때 바뀌는 혜택
-- 소득 증가로 인해 신청 가능성이 낮아지는 정책
-- 신청 순서를 조정해야 할 가능성
-
-이 기능은 단순히 특정 복지 혜택을 받을 수 있는지 여부를 보여주는 것을 넘어, 사용자의 상황 변화에 따라 어떤 선택이 더 안전한지 판단하는 데 도움을 주기 위한 기능입니다.
+Although the service may later be expanded into a system for counseling institutions, the current version is closer to a personal self-assessment service than an internal case-management system for agencies.
 
 ---
 
-### 3.4 신청 준비하기
+## 3. Key Features
 
-신청 가능성이 있는 정책이 있으면, 사용자가 다음에 무엇을 해야 하는지 정리해 줍니다.
+### 3.1 Importing Personal Information
 
-예를 들어 다음과 같은 항목을 보여줍니다.
+Users can upload PDF files, Word documents, text files, image files, and other materials to import information about their circumstances.
 
-- 먼저 확인해야 할 정보
-- 준비해야 할 서류
-- 신청 전에 다시 확인할 조건
-- 공식 신청 창구에서 확인해야 할 항목
-- 상담사나 담당 기관 확인이 필요한 경우
+Examples include:
 
-LifePass AI는 신청을 대신 완료해 주는 서비스가 아닙니다. 사용자가 공식 신청을 하기 전에 빠뜨린 조건이나 서류가 없는지 정리해 주는 역할입니다.
+- Counseling notes
+- Notes related to a housing lease
+- Documents containing monthly rent, deposit, and income information
+- Text files summarizing the user's circumstances
+- Policy information documents
 
----
+When a file is uploaded, the platform extracts key information such as:
 
-### 3.5 판정 근거 확인하기
+- Age
+- Region of residence
+- Household type
+- Monthly income
+- Monthly rent
+- Housing deposit
+- Remaining unemployment benefit days
+- Expected income several months later
+- Available documents
 
-사용자는 왜 특정 혜택이 추천되었는지, 어떤 정보가 판정에 사용되었는지 확인할 수 있습니다.
+If extracted information is incorrect or incomplete, the user can correct it directly in the editing area on the screen.
 
-이 화면에서는 다음을 확인할 수 있습니다.
-
-- 판정에 사용된 사용자 정보
-- 정책별 조건 비교 결과
-- 확인이 필요한 항목
-- 정책 수집 관리 상태
-- 검수 대기 중인 정책 후보
-- 승인된 정책 수
-
-정책 자동 수집 기능을 사용하는 경우, 이 화면에서 수집된 정책 후보를 검토하고 승인 또는 반려할 수 있습니다.
-
-또한 법령 근거 영역에서는 정책 추천의 배경이 되는 관련 법령을 확인할 수 있습니다. 법령 데이터는 직접 받을 수 있는 혜택이 아니라, 특정 정책이 어떤 법률·제도적 근거 위에서 운영되는지 보여주는 참고 자료입니다.
-
-예를 들어 주거급여 관련 정책은 주거급여법이나 국민기초생활 보장법과 연결될 수 있고, 고용 지원 정책은 고용보험법이나 국민취업지원 관련 법령과 연결될 수 있습니다.
-
-사용자는 이 정보를 통해 왜 특정 정책이 추천되었는지, 어떤 조건이 법령상 근거를 갖는지, 공식 신청 또는 상담 시 어떤 원문을 확인해야 하는지 파악할 수 있습니다.
+> The current version supports both free-text input and document upload. Users can describe their situation in natural language, such as “28 years old, living in Seoul, monthly rent of KRW 450,000,” or upload a document and then review the extracted values in the numeric and status editing area. All values used in the final assessment are shown on the screen so that users can correct them directly.
 
 ---
 
-## 4. 정책 데이터는 관리
+### 3.2 Benefits You May Qualify For
 
-LifePass AI의 정책 수집 구조는 다음 원칙을 따릅니다.
+The platform compares the user's current information with registered policy criteria and shows benefits for which the user may be eligible.
 
-> 공식 API 우선, 허용된 보조 수집은 제한적으로 사용
+This screen includes:
 
-즉, 복지로, 정부24, 공공데이터포털 등 공식 API로 가져올 수 있는 정보는 API를 우선 사용합니다. API에 아직 반영되지 않은 지자체 공고문은 운영자가 허용한 URL에 한해 보조적으로 수집하는 구조입니다.
+- Policies the user may qualify for
+- Policies that require additional information
+- Policies whose criteria are not met
+- Estimated effects of each policy
+- Explanations of the conditions that make the user eligible or ineligible
 
-정책 자동 수집 흐름은 다음과 같습니다.
-
-1. 공식 API 또는 허용된 공고 URL에서 정책 원문을 가져옵니다.
-2. 가져온 원문을 저장합니다.
-3. 이전에 저장된 내용과 비교해 새 정책인지, 변경된 정책인지 확인합니다.
-4. 정책 원문에서 나이, 소득, 지역, 월세, 보증금, 지원금, 신청 방법 같은 조건을 추출합니다.
-5. LifePass AI가 비교할 수 있는 내부 정책 규칙으로 바꿉니다.
-6. 바로 사용자에게 노출하지 않고, 먼저 관리자 검수 대기 목록에 올립니다.
-7. 관리자가 승인한 정책만 실제 매칭 대상에 포함됩니다.
-8. 상세조회 API 응답을 결합할 때는 요청한 정책 ID와 응답의 정책 ID가 일치하는지 확인합니다. 
-9. 일치하지 않는 상세정보는 정책에 억지로 붙이지 않습니다. 이는 한 정책의 지원 조건이 다른 정책에 잘못 섞이는 문제를 막기 위한 장치입니다.
-
-이 구조를 두는 이유는 정책 문서를 자동으로 읽는 과정에서 오류가 생길 수 있기 때문입니다. 복지 정책은 실제 생활과 연결되는 정보이므로 자동 수집 결과를 바로 노출하기보다 검수 단계를 거치는 것이 안전합니다. 
-HTTP 요청이 성공하더라도 API 내부 응답 코드가 오류이거나 필수 정책 정보가 비어 있으면 정상 정책으로 승인하지 않고 수집 오류 또는 검수 대기 상태로 분리합니다.
+LifePass AI does not provide a final administrative determination. It is intended to help users review their circumstances before submitting an official application.
 
 ---
 
-## 5. 배포 전 보안 체크
+### 3.3 Welfare Cliff Preview
 
-공개 저장소나 제출용 ZIP에는 실제 API 키가 들어 있는 `.env`를 포함하지 않아야 합니다. 이미 포함해 공유했다면 해당 키를 폐기하고 새로 발급받아야 하니 주의하시기 바랍니다.
+When income begins or increases, some benefits may be reduced or lost abruptly. LifePass AI helps users preview these changes.
 
-관리자 API는 `LIFEPASS_ADMIN_TOKEN`이 설정되어 있어야 사용할 수 있습니다. 토큰이 비어 있으면 관리자 검수·수집 실행 API는 차단됩니다. 검수 대기 정책 후보는 사용자 추천 결과에 섞이지 않고, 관리자가 승인한 정책만 실제 혜택 매칭에 사용됩니다.
+For example, if a user currently has no income but plans to begin a part-time job earning KRW 800,000 per month in three months, the user can review:
 
-배포 전 다음 명령을 실행해 기본 동작과 보안 포장 상태를 확인하세요.
+- Benefits available now
+- Benefits that may change after the expected income begins
+- Policies for which eligibility may decrease because of the income increase
+- Whether the order of applications should be adjusted
+
+This feature goes beyond showing whether a user qualifies for a specific benefit. It is designed to help users make safer decisions as their circumstances change.
+
+---
+
+### 3.4 Preparing an Application
+
+When a user may qualify for a policy, LifePass organizes the next steps.
+
+For example, it may show:
+
+- Information that should be confirmed first
+- Documents that should be prepared
+- Conditions that should be checked again before applying
+- Items that should be verified through the official application channel
+- Cases where confirmation from a counselor or responsible institution is required
+
+LifePass AI does not submit applications on behalf of users. Its role is to help users identify missing conditions or documents before they apply through an official institution.
+
+---
+
+### 3.5 Reviewing the Basis for a Decision
+
+Users can review why a particular benefit was recommended and which information was used in the assessment.
+
+This screen may show:
+
+- User information used in the assessment
+- Policy-by-policy comparison results
+- Items that still need confirmation
+- Policy ingestion management status
+- Policy candidates waiting for review
+- Number of approved policies
+
+When automated policy ingestion is enabled, administrators can review, approve, or reject collected policy candidates from this screen.
+
+The legal-basis section also shows laws and regulations related to policy recommendations. Legal data does not represent a benefit that the user can receive directly. Instead, it serves as reference material showing the legal and institutional basis for a policy.
+
+For example, housing benefit policies may be connected to the Housing Benefits Act or the National Basic Living Security Act, while employment support policies may be connected to the Employment Insurance Act or legislation related to the National Employment Support Program.
+
+This information helps users understand why a policy was recommended, which eligibility conditions have a legal basis, and which official source documents should be reviewed before applying or receiving counseling.
+
+---
+
+## 4. Policy Data Management
+
+LifePass AI follows the principle below when collecting policy data:
+
+> Prioritize official APIs and use permitted supplementary collection only in a limited manner.
+
+Information available through official APIs such as Bokjiro, Government24, and the Public Data Portal is collected through APIs first. Local-government announcements that are not yet reflected in APIs may be collected only from URLs explicitly approved by the operator.
+
+The automated policy ingestion workflow is as follows:
+
+1. Retrieve policy source documents from an official API or an approved announcement URL.
+2. Store the retrieved source documents.
+3. Compare them with previously stored content to determine whether a policy is new or has changed.
+4. Extract conditions such as age, income, region, monthly rent, deposit, benefit amount, and application method.
+5. Convert the extracted information into internal policy rules that LifePass AI can compare.
+6. Add the policy to the administrator review queue instead of exposing it directly to users.
+7. Include only administrator-approved policies in actual benefit matching.
+8. When combining a detail API response, verify that the requested policy ID matches the policy ID returned in the response.
+9. Do not forcibly attach mismatched detail information to a policy. This prevents the eligibility conditions of one policy from being incorrectly mixed into another.
+
+This review process is necessary because errors may occur when policy documents are interpreted automatically. Welfare policies affect real-life decisions, so collected results should be reviewed before being shown to users.
+
+Even if an HTTP request succeeds, a response is treated as a collection error or review candidate rather than an approved policy when the API's internal response code indicates an error or required policy information is missing.
+
+---
+
+## 5. Security Checklist Before Deployment
+
+Do not include a `.env` file containing real API keys in a public repository or submission ZIP file. If a real key has already been shared, revoke it and issue a new one.
+
+The administrator API can be used only when `LIFEPASS_ADMIN_TOKEN` is configured. When the token is empty, administrator review and ingestion APIs are blocked. Policy candidates waiting for review are not mixed into user recommendations, and only administrator-approved policies are used for benefit matching.
+
+Before deployment, run the following commands to verify basic functionality and security packaging:
 
 ```bash
 npm run verify
 npm run verify:security
 ```
+
 ---
 
-## 6. 실행 전 준비물
+## 6. Prerequisites
 
-프로젝트를 실행하려면 다음이 필요합니다.
+The following are required to run the project:
 
 - Node.js
 - npm
-- 프로젝트 파일 전체
-- 외부 정책 자동 수집을 쓰려면 공식 API 인증키
+- The complete project files
+- Official API credentials when using external policy ingestion
 
-제출용 ZIP에는 `.env`, `.git`, `node_modules`, `dist`, 런타임 수집 데이터가 포함되지 않아야 합니다. 처음 받은 프로젝트에는 `node_modules`가 없거나, 운영체제에 맞지 않는 `node_modules`가 들어 있을 수 있습니다. 이 경우 반드시 다시 설치하세요.
+Submission ZIP files should not include `.env`, `.git`, `node_modules`, `dist`, or runtime ingestion data. A newly received project may not include `node_modules`, or it may include a version built for another operating system. In that case, reinstall the dependencies.
 
 ```bash
 npm install
 cp .env.example .env
-# .env의 LIFEPASS_ADMIN_TOKEN과 필요한 공식 API 키를 실제 값으로 교체
+# Replace LIFEPASS_ADMIN_TOKEN and required official API keys in .env with actual values
 ```
 
 ---
+## 7. Running the Project
 
-## 7. 실행 방법
+LifePass AI can run both a frontend interface and a backend server responsible for policy ingestion and search.
 
-LifePass AI는 화면을 보여주는 프론트엔드와 정책 수집·검색을 담당하는 백엔드 서버를 함께 사용할 수 있습니다.
+### 7.1 Running the Frontend Only
 
-### 7.1 프론트엔드만 실행하기
-
-기본 데모 정책과 문서 파싱 기능만 빠르게 확인하려면 다음 명령을 실행합니다.
+To quickly test the default demo policies and document parsing features, run:
 
 ```bash
 npm run dev
 ```
 
-실행 후 브라우저에서 다음 주소를 엽니다.
+Then open the following address in a browser:
 
 ```text
 http://localhost:5173
 ```
 
-이 방식으로도 사용자는 파일을 업로드하고, 기본 정책 기준으로 받을 수 있는 혜택을 확인할 수 있습니다.
+In this mode, users can still upload files and review potential benefits using the default policy dataset.
 
 ---
 
-### 7.2 백엔드 서버 함께 실행하기
+### 7.2 Running the Backend Server Together
 
-정책 자동 수집, 정책 검색, 관리자 검수 기능을 함께 보려면 터미널을 두 개 열어야 합니다.
+To use automated policy ingestion, policy search, and administrator review, open two terminal windows.
 
-첫 번째 터미널에서 백엔드 서버를 실행합니다.
+In the first terminal, run the backend server:
 
 ```bash
 npm run server
 ```
 
-두 번째 터미널에서 프론트엔드 화면을 실행합니다.
+In the second terminal, run the frontend:
 
 ```bash
 npm run dev
 ```
 
-그다음 브라우저에서 다음 주소를 엽니다.
+Then open:
 
 ```text
 http://localhost:5173
 ```
 
-백엔드 서버는 기본적으로 다음 주소에서 실행됩니다.
+The backend server runs at the following address by default:
 
 ```text
 http://localhost:8787
 ```
 
-프론트엔드는 `/api` 요청을 백엔드 서버로 연결하도록 설정되어 있습니다.
+The frontend is configured to forward `/api` requests to the backend server.
 
 ---
 
-### 7.3 정책을 한 번 수집하기
+### 7.3 Running a One-Time Policy Ingestion
 
-외부 공식 API 정보를 설정해 두었다면 다음 명령으로 정책 수집을 한 번 실행할 수 있습니다.
+After configuring external official APIs, run:
 
 ```bash
 npm run ingest:once
 ```
 
-이 명령은 다음 일을 합니다.
+This command performs the following steps:
 
-1. 설정된 공식 API 주소를 확인합니다.
-2. 인증키가 있는 경우 정책 정보를 요청합니다.
-3. 정책 원문을 저장합니다.
-4. 기존 원문과 비교해 변경 여부를 확인합니다.
-5. 조건을 추출해 정책 규칙 초안을 만듭니다.
-6. 관리자 검수 대기 목록에 올립니다.
+1. Check the configured official API endpoints.
+2. Request policy information when authentication keys are available.
+3. Store the policy source documents.
+4. Compare the documents with previously stored versions.
+5. Extract conditions and generate a draft policy rule.
+6. Add the candidate to the administrator review queue.
 
-`ingest:once`는 정책 수집을 한 번만 실행합니다. 개발 중에 수동으로 정책 수집을 시험할 때 사용하기 좋습니다.
+`ingest:once` runs the ingestion process only once. It is useful for manually testing policy ingestion during development.
 
 ---
 
-### 7.4 정책을 주기적으로 수집하기
+### 7.4 Running Scheduled Policy Ingestion
 
-운영 중에 정책 정보를 계속 갱신하고 싶다면 다음 명령을 실행합니다.
+To keep policy information updated during operation, run:
 
 ```bash
 npm run ingest:schedule
 ```
 
-이 명령은 일정 간격마다 정책 수집을 반복합니다. 기본 설정에서는 몇 시간마다 한 번씩 외부 정책 소스를 확인하도록 되어 있습니다.
+This command repeats policy ingestion at a configured interval. By default, external policy sources are checked every few hours.
 
-이 기능은 실제 배포 환경에서는 서버 프로세스 관리자, 클라우드 스케줄러, 크론 작업 등과 함께 운영하는 것이 좋습니다.
+In a production environment, this feature should be used with a server process manager, cloud scheduler, cron job, or similar scheduling mechanism.
 
 ---
 
-### 7.5 검증하기
+### 7.5 Verification
 
-프로젝트의 핵심 로직이 깨지지 않았는지 확인하려면 다음 명령을 실행합니다.
+To verify that the project's core logic is working correctly, run:
 
 ```bash
 npm run verify
 ```
 
-이 명령은 다음을 확인합니다.
+This command checks:
 
-- 필수 파일이 있는지
-- 탭 이름에 불필요한 숫자 접두사가 없는지
-- 문서 파싱이 정상적으로 작동하는지
-- 정책 문서와 사용자 문서를 구분할 수 있는지
-- 정책 자동 수집 관련 모듈이 정상적으로 불러와지는지
-- 신청 준비 화면에 필요한 정보가 비어 있지 않은지
+- Whether required files are present
+- Whether tab names contain unnecessary numeric prefixes
+- Whether document parsing works correctly
+- Whether policy documents and user documents can be distinguished
+- Whether policy-ingestion modules load correctly
+- Whether the application preparation screen contains the required information
 
 ---
 
-### 7.6 배포용 파일 만들기
+### 7.6 Building for Deployment
 
-프론트엔드 배포 파일을 만들려면 다음 명령을 실행합니다.
+To create frontend deployment files, run:
 
 ```bash
 npm run build
 ```
 
-빌드 결과는 `dist/` 폴더에 생성됩니다.
+The build output is generated in the `dist/` directory.
 
-로컬에서 빌드 결과를 확인하려면 다음을 실행합니다.
+To preview the build locally, run:
 
 ```bash
 npm run preview
@@ -328,19 +330,19 @@ npm run preview
 
 ---
 
-## 8. 환경변수 설정
+## 8. Environment Variable Configuration
 
-외부 정책 자동 수집 기능을 사용하려면 `.env` 파일을 설정해야 합니다.
+To use external policy ingestion, configure a `.env` file.
 
-먼저 예시 파일을 복사합니다.
+First, copy the example file:
 
 ```bash
 cp .env.example .env
 ```
 
-그다음 `.env` 파일을 열어 필요한 값을 입력합니다.
+Then open `.env` and enter the required values.
 
-### 8.1 백엔드 서버 설정
+### 8.1 Backend Server Settings
 
 ```env
 LIFEPASS_API_HOST=0.0.0.0
@@ -350,29 +352,29 @@ LIFEPASS_REQUIRE_ADMIN_TOKEN=true
 LIFEPASS_MAX_BODY_BYTES=1048576
 ```
 
-의미는 다음과 같습니다.
+Descriptions:
 
-- `LIFEPASS_API_HOST`: 백엔드 서버를 어느 주소에서 열지 정합니다.
-- `LIFEPASS_API_PORT`: 백엔드 서버 포트입니다. 기본값은 8787입니다.
-- `LIFEPASS_CORS_ORIGIN`: 프론트엔드가 백엔드에 접근할 수 있도록 허용할 주소입니다. 여러 개면 쉼표로 구분합니다.
-- `LIFEPASS_REQUIRE_ADMIN_TOKEN`: 토큰이 비어 있을 때 관리자 API를 차단할지 정합니다. 운영에서는 `true`로 둡니다.
-- `LIFEPASS_MAX_BODY_BYTES`: 관리자 API 요청 본문 크기 제한입니다.
+- `LIFEPASS_API_HOST`: The address on which the backend server listens.
+- `LIFEPASS_API_PORT`: The backend server port. The default is 8787.
+- `LIFEPASS_CORS_ORIGIN`: The frontend origin allowed to access the backend. Separate multiple origins with commas.
+- `LIFEPASS_REQUIRE_ADMIN_TOKEN`: Determines whether administrator APIs are blocked when the token is empty. Keep this set to `true` in production.
+- `LIFEPASS_MAX_BODY_BYTES`: Maximum request body size for administrator APIs.
 
 ---
 
-### 8.2 관리자 토큰
+### 8.2 Administrator Token
 
 ```env
 LIFEPASS_ADMIN_TOKEN=change-me-before-production
 ```
 
-관리자 토큰은 정책 수집 실행, 정책 후보 승인, 정책 후보 반려 같은 관리자 기능을 보호하기 위한 값입니다.
+The administrator token protects administrative features such as running policy ingestion and approving or rejecting policy candidates.
 
-실제 운영에서는 반드시 예측하기 어려운 긴 문자열로 바꾸어야 합니다. 현재 수정본은 토큰이 비어 있으면 관리자 API를 차단합니다. 공개 저장소나 제출용 ZIP에는 실제 토큰이 들어 있는 `.env`를 포함하지 마세요.
+In production, replace it with a long, unpredictable value. The current version blocks administrator APIs when the token is empty. Do not include a `.env` file containing a real token in a public repository or submission ZIP file.
 
 ---
 
-### 8.3 정책 저장 위치와 PostgreSQL 캐시
+### 8.3 Policy Storage and PostgreSQL Cache
 
 ```env
 DATABASE_URL=postgresql://lifepass:lifepass@localhost:5432/lifepass
@@ -380,23 +382,29 @@ POLICY_STORE_DIR=./server/data/policy_store
 POLICY_REFRESH_TTL_HOURS=24
 ```
 
-`DATABASE_URL`을 설정하면 수집한 정책, 법령 근거, 원문, 검색 인덱스, API 응답 캐시를 PostgreSQL에 저장합니다. 같은 API URL은 `POLICY_REFRESH_TTL_HOURS` 안에서는 DB 캐시를 우선 사용하므로, 한 번 가져온 데이터를 매 실행마다 다시 호출하지 않습니다. `DATABASE_URL`을 비워두면 기존처럼 `POLICY_STORE_DIR` 아래 JSON 파일 저장소를 사용합니다. PostgreSQL을 사용할 경우 새 의존성인 `pg`가 필요하므로 `npm install`을 다시 실행하세요.
+When `DATABASE_URL` is configured, collected policies, legal references, source documents, search indexes, and API response caches are stored in PostgreSQL.
+
+For the same API URL, the database cache is used first within the `POLICY_REFRESH_TTL_HOURS` period, preventing the same data from being requested every time the application runs.
+
+When `DATABASE_URL` is empty, the system uses the JSON file store under `POLICY_STORE_DIR` as before.
+
+PostgreSQL support requires the `pg` dependency, so run `npm install` again when enabling it.
 
 ---
 
-### 8.4 정책 수집 간격
+### 8.4 Policy Ingestion Interval
 
 ```env
 POLICY_SCHEDULER_INTERVAL_MS=21600000
 ```
 
-`npm run ingest:schedule`을 실행했을 때 정책 수집을 얼마나 자주 반복할지 정합니다.
+This value controls how often policy ingestion repeats when `npm run ingest:schedule` is running.
 
-예를 들어 `21600000`은 6시간을 의미합니다.
+For example, `21600000` represents six hours.
 
 ---
 
-### 8.5 복지로·정부24·공공데이터포털 API 설정
+### 8.5 Bokjiro, Government24, and Public Data Portal API Settings
 
 ```env
 BOKJIRO_SERVICE_KEY=
@@ -412,21 +420,21 @@ GOV24_SERVICE_KEY=
 GOV24_BENEFIT_API_URL=
 ```
 
-각 항목의 의미는 다음과 같습니다.
+Descriptions:
 
-- `BOKJIRO_SERVICE_KEY`: 복지로 또는 공공데이터포털의 복지서비스 API를 호출하기 위한 인증키입니다.
-- `BOKJIRO_CENTRAL_API_URL`: 중앙부처 복지서비스 정보를 가져올 API 주소입니다.
-- `BOKJIRO_CENTRAL_DETAIL_API_URL`: 중앙부처 복지서비스 상세조회를 위한 주소입니다. 목록 URL을 재사용하지 않고 상세조회 전용 URL을 별도로 설정합니다.
-- `BOKJIRO_LOCAL_API_URL`: 지자체 복지서비스 정보를 가져올 API 주소입니다.
-- `BOKJIRO_LOCAL_DETAIL_API_URL`: 지자체 복지서비스 상세조회를 위한 주소입니다. 목록조회는 LcgvWelfarelist, 상세조회는 LcgvWelfaredetailed를 사용합니다.
-- `GOV24_SERVICE_KEY`: 정부24 또는 공공서비스 혜택 정보 API를 호출하기 위한 인증키입니다.
-- `GOV24_BENEFIT_API_URL`: 정부24·공공서비스 혜택 정보를 가져올 API 주소입니다.
+- `BOKJIRO_SERVICE_KEY`: Authentication key for calling the Bokjiro or Public Data Portal welfare-service API.
+- `BOKJIRO_CENTRAL_API_URL`: API endpoint for central-government welfare service information.
+- `BOKJIRO_CENTRAL_DETAIL_API_URL`: Endpoint for central-government welfare service detail queries. Configure a dedicated detail endpoint rather than reusing the list endpoint.
+- `BOKJIRO_LOCAL_API_URL`: API endpoint for local-government welfare service information.
+- `BOKJIRO_LOCAL_DETAIL_API_URL`: Endpoint for local-government welfare service detail queries. Use `LcgvWelfarelist` for list queries and `LcgvWelfaredetailed` for detail queries.
+- `GOV24_SERVICE_KEY`: Authentication key for Government24 or public-service benefit APIs.
+- `GOV24_BENEFIT_API_URL`: API endpoint for Government24 or public-service benefit information.
 
-이 값들은 프로젝트에 자동으로 포함되어 있지 않습니다. 실제 API를 사용하려면 해당 기관 또는 공공데이터포털에서 활용 신청을 하고, 발급받은 인증키와 API 주소를 직접 입력해야 합니다.
+These values are not automatically included in the project. To use the real APIs, apply for access through the relevant institution or the Public Data Portal and enter the issued authentication keys and API URLs manually.
 
 ---
 
-### 8.6 국가법령정보센터 법령 데이터 설정
+### 8.6 Korean Law Information Center Data Settings
 
 ```env
 ENABLE_LAW_WELFARE_ACTS=true
@@ -436,11 +444,19 @@ LAW_SERVICE_API_URL=http://www.law.go.kr/DRF/lawService.do
 LAW_POLICY_QUERIES=복지,기초생활보장,청년,주거급여,고용보험
 ```
 
-`LAW_OPEN_API_OC`에는 국가법령정보센터 공동활용 Open API에서 발급받은 OC 값을 입력합니다. 수집기는 `LAW_POLICY_QUERIES`에 적은 검색어로 복지·주거·고용 관련 현행 법령 목록을 조회하고, 가능한 경우 본문 조회 API로 상세 내용을 보강합니다. 법령 데이터는 혜택 매칭 룰로 바로 사용하지 않고, 정책 판단 근거 자료로 별도 표시합니다. 수집된 법령은 주거, 고용, 생계, 의료, 교육, 긴급지원 등 정책 분야와 연결되어 표시되며, 사용자가 특정 정책이 어떤 법적 근거 위에서 운영되는지 확인하는 데 사용됩니다. 즉, 법령 근거는 “내가 바로 받을 수 있는 혜택”이 아니라 “이 정책 판단이 어떤 법·제도와 연결되는지 설명하는 근거 자료”입니다.
+Enter the OC value issued by the Korean Law Information Center Open API in `LAW_OPEN_API_OC`.
+
+The ingester searches for current welfare, housing, and employment-related laws using the terms in `LAW_POLICY_QUERIES` and enriches the data with the full-text API where possible.
+
+Legal data is not used directly as a benefit-matching rule. Instead, it is shown separately as supporting material for policy decisions.
+
+Collected laws are connected to policy areas such as housing, employment, livelihood, healthcare, education, and emergency assistance. This helps users understand the legal basis on which a policy operates.
+
+In other words, a legal basis is not “a benefit I can receive immediately,” but “reference material explaining which law or system supports this policy decision.”
 
 ---
 
-### 8.7 수집 소스 사용 여부
+### 8.7 Enabling or Disabling Ingestion Sources
 
 ```env
 ENABLE_BOKJIRO_CENTRAL=true
@@ -448,78 +464,77 @@ ENABLE_BOKJIRO_LOCAL=true
 ENABLE_GOV24_BENEFITS=true
 ```
 
-각 정책 소스를 사용할지 정하는 값입니다.
+These values determine whether each policy source is enabled.
 
-- `true`: 해당 소스를 사용합니다.
-- `false`: 해당 소스를 사용하지 않습니다.
+- `true`: Use the source.
+- `false`: Do not use the source.
 
-API 키나 URL이 아직 없다면 해당 값을 `false`로 두는 것이 좋습니다.
+When an API key or URL has not yet been configured, it is recommended to set the corresponding value to `false`.
 
 ---
 
-### 8.8 지자체 공고 보조 수집
+### 8.8 Supplementary Local-Government Announcement Collection
 
 ```env
 ENABLE_LOCAL_NOTICE_CRAWLER=false
 LOCAL_NOTICE_URLS=
 ```
 
-공식 API에 늦게 반영되는 지자체 공고문을 보조적으로 확인하기 위한 설정입니다.
+These settings support supplementary collection of local-government announcements that may not yet be reflected in official APIs.
 
-기본값은 꺼져 있습니다. 실제로 사용할 때는 운영자가 허용한 URL만 `LOCAL_NOTICE_URLS`에 넣어야 합니다.
+The feature is disabled by default. When enabling it, add only URLs explicitly approved by the operator to `LOCAL_NOTICE_URLS`.
 
-주의할 점은 다음과 같습니다.
+Important considerations:
 
-- 무작정 여러 사이트를 긁는 방식으로 사용하면 안 됩니다.
-- 각 사이트의 이용약관과 robots 정책을 확인해야 합니다.
-- 공식 API로 제공되는 정보는 API를 우선 사용해야 합니다.
-- 보조 수집된 정보는 반드시 검수 후 사용자에게 보여주는 것이 안전합니다.
+- Do not use it to indiscriminately scrape many websites.
+- Review each website's terms of use and robots policy.
+- Prioritize official APIs when the same information is available through an API.
+- Show supplementary collected information to users only after review.
+
+---
+## 9. Example User Flows
+
+### 9.1 General User Flow
+
+1. The user opens LifePass AI.
+2. Under `Import My Information`, the user uploads counseling notes or a document describing their circumstances.
+3. The platform extracts age, region, income, monthly rent, deposit, expected income, and other relevant information.
+4. The user corrects any incorrectly extracted values.
+5. Under `Benefits You May Qualify For`, the user reviews policies for which they may be eligible.
+6. Under `Welfare Cliff Preview`, the user reviews how eligibility may change when income changes.
+7. Under `Prepare an Application`, the user checks required documents and next actions.
+8. The final application is submitted through the official institution's website.
 
 ---
 
-## 9. 실제 사용 흐름 예시
+### 9.2 Policy Administrator Flow
 
-### 9.1 일반 사용자 흐름
-
-1. 사용자가 LifePass AI 화면을 엽니다.
-2. `내 정보 불러오기`에서 상담 메모나 자신의 상황이 담긴 문서를 올립니다.
-3. 플랫폼이 나이, 지역, 소득, 월세, 보증금, 예상 소득 등을 읽어냅니다.
-4. 사용자는 잘못 읽힌 값을 직접 수정합니다.
-5. `받을 수 있는 혜택`에서 신청 가능성이 있는 정책을 확인합니다.
-6. `복지절벽 미리보기`에서 소득 변화에 따른 혜택 변화를 확인합니다.
-7. `신청 준비하기`에서 필요한 서류와 다음 행동을 확인합니다.
-8. 최종 신청은 공식 기관 홈페이지에서 진행합니다.
+1. Configure official API keys, the Korean Law Information Center OC value, and `DATABASE_URL` when needed in `.env`.
+2. Run the backend server with `npm run server`.
+3. Run a one-time policy ingestion with `npm run ingest:once`.
+4. Collected policy candidates are added to the review queue.
+5. The administrator reviews the policy name, source document, extracted conditions, and generated rules.
+6. The administrator approves valid candidates.
+7. Only approved policies are included in user benefit matching.
 
 ---
 
-### 9.2 정책 관리자 흐름
+## 10. Command Summary
 
-1. `.env`에 공식 API 키, 국가법령정보센터 OC 값, 필요 시 `DATABASE_URL`을 설정합니다.
-2. `npm run server`로 백엔드 서버를 실행합니다.
-3. `npm run ingest:once`로 정책 수집을 한 번 실행합니다.
-4. 수집된 정책 후보가 검수 대기 목록에 올라옵니다.
-5. 관리자는 정책명, 원문, 추출 조건, 생성된 규칙을 확인합니다.
-6. 문제가 없으면 승인합니다.
-7. 승인된 정책만 사용자의 혜택 매칭 대상에 포함됩니다.
-
----
-
-## 10. 주요 명령어 요약
-
-| 명령어 | 역할 |
+| Command | Purpose |
 |---|---|
-| `npm install` | 필요한 패키지를 설치합니다. |
-| `npm run dev` | 사용자가 보는 화면을 실행합니다. |
-| `npm run server` | 정책 수집·검색·검수용 백엔드 서버를 실행합니다. |
-| `npm run ingest:once` | 외부 정책 정보를 한 번 수집합니다. |
-| `npm run ingest:schedule` | 외부 정책 정보를 주기적으로 수집합니다. |
-| `npm run verify` | 주요 기능이 정상인지 점검합니다. |
-| `npm run build` | 배포용 프론트엔드 파일을 생성합니다. |
-| `npm run preview` | 빌드 결과를 로컬에서 확인합니다. |
+| `npm install` | Installs required packages. |
+| `npm run dev` | Runs the user-facing frontend. |
+| `npm run server` | Runs the backend server for policy ingestion, search, and review. |
+| `npm run ingest:once` | Collects external policy information once. |
+| `npm run ingest:schedule` | Collects external policy information periodically. |
+| `npm run verify` | Checks whether major features work correctly. |
+| `npm run build` | Creates production frontend files. |
+| `npm run preview` | Previews the production build locally. |
 
 ---
 
-## 11. 폴더 구조
+## 11. Project Structure
 
 ```text
 lifepass_react_lite/
@@ -559,64 +574,64 @@ lifepass_react_lite/
 └── docs/
 ```
 
-각 폴더의 역할은 다음과 같습니다.
+Directory descriptions:
 
-- `src/`: 사용자가 보는 화면과 브라우저에서 실행되는 로직이 들어 있습니다.
-- `src/data/benefits.json`: 기본 데모 정책 데이터입니다.
-- `src/logic/`: 문서 파싱, 혜택 판정, 복지절벽 계산 같은 핵심 로직이 들어 있습니다.
-- `server/`: 정책 자동 수집, 정책 저장, 변경 감지, 관리자 검수, 검색 API를 담당합니다.
-- `server/config/`: API 키, 수집 소스, 서버 설정을 읽는 코드가 들어 있습니다.
-- `server/lib/`: 정책 수집과 정규화에 필요한 세부 기능이 들어 있습니다.
-- `scripts/verify.mjs`: 프로젝트 검증 스크립트입니다.
-- `docs/`: 테스트 입력이나 설명 문서를 둘 수 있는 폴더입니다.
-
----
-
-## 12. LifePass의 차별점
-
-LifePass AI는 단순한 복지 정보 검색 서비스가 아니라, 사용자의 상황 변화와 신청 준비 과정을 함께 다루는 것을 목표로 합니다.
-
-주요 차별점은 다음과 같습니다.
-
-1. **문서 기반 정보 추출**  
-   사용자가 직접 긴 항목을 입력하지 않아도 상담 메모나 관련 문서에서 핵심 정보를 읽어낼 수 있습니다.
-
-2. **복지절벽 미리보기**  
-   지금 받을 수 있는 혜택뿐 아니라, 몇 달 뒤 소득이 생기면 어떤 혜택이 줄어들 수 있는지 살펴볼 수 있습니다.
-
-3. **신청 준비 중심 안내**  
-   단순 추천에서 끝나지 않고, 어떤 서류를 확인하고 어떤 순서로 준비해야 하는지 보여줍니다.
-
-4. **정책 자동 수집 구조**  
-   데모 정책만 사용하는 구조에서 벗어나, 공식 API 기반으로 정책 후보를 수집하고 검수 후 반영할 수 있는 구조를 갖추고 있습니다.
-
-5. **사용자 수정 가능성**  
-   문서에서 잘못 읽힌 값은 사용자가 직접 수정할 수 있어, 최종 판단에 쓰이는 정보가 무엇인지 확인하기 쉽습니다.
+- `src/`: Contains the user-facing interface and browser-side logic.
+- `src/data/benefits.json`: Contains the default demo policy data.
+- `src/logic/`: Contains core logic for document parsing, benefit assessment, and welfare cliff calculation.
+- `server/`: Handles automated policy ingestion, policy storage, change detection, administrator review, and search APIs.
+- `server/config/`: Contains code that reads API keys, ingestion sources, and server settings.
+- `server/lib/`: Contains detailed functions required for policy ingestion and normalization.
+- `scripts/verify.mjs`: Project verification script.
+- `docs/`: Directory for test inputs and explanatory documents.
 
 ---
 
-## 13. 빠른 시작 요약
+## 12. What Makes LifePass Different
 
-그냥 dev, server, ingest을 한 번에 하고 싶다면(fe, be 동시 가동, 정책 자동 수집 및 갱신) 아래의 명령어 하나만 입력하면 됩니다.
+LifePass AI is not only a welfare information search service. It is designed to address both changes in the user's circumstances and the application preparation process.
+
+Key differentiators include:
+
+1. **Document-based information extraction**  
+   Users can extract key information from counseling notes or related documents instead of manually entering many fields.
+
+2. **Welfare cliff preview**  
+   Users can review not only the benefits available now, but also which benefits may decrease after future income begins.
+
+3. **Application-focused guidance**  
+   The platform goes beyond recommendations and shows which documents to confirm and in what order to prepare them.
+
+4. **Automated policy ingestion architecture**  
+   The platform can move beyond demo policies by collecting candidates through official APIs and applying them after review.
+
+5. **User-editable information**  
+   Users can correct values extracted incorrectly from documents and review exactly which information is used in the final assessment.
+
+---
+
+## 13. Quick Start
+
+To run the frontend, backend, and ingestion workflow together with one command, use:
 
 ```bash
 bash scripts/dev-all.sh
 ```
 
-하나씩 순서대로 실행하고 싶다면, 아래 순서로 진행하면 됩니다.
+To run each part step by step:
 
 ```bash
 npm install
 npm run dev
 ```
 
-브라우저에서 다음 주소를 엽니다.
+Then open:
 
 ```text
 http://localhost:5173
 ```
 
-정책 수집 서버까지 함께 보려면 터미널을 두 개 열고 각각 실행합니다.
+To run the policy ingestion server as well, open two terminal windows and run:
 
 ```bash
 npm run server
@@ -626,13 +641,13 @@ npm run server
 npm run dev
 ```
 
-외부 정책 수집을 테스트하려면 `.env`를 설정한 뒤 실행합니다.
+To test external policy ingestion, configure `.env` and run:
 
 ```bash
 npm run ingest:once
 ```
 
-프로젝트 상태를 확인하려면 다음을 실행합니다.
+To verify and build the project:
 
 ```bash
 npm run verify
@@ -640,4 +655,3 @@ npm run build
 ```
 
 ---
-
